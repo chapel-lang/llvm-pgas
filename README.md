@@ -12,10 +12,14 @@ LLVM optimizations can apply to remove communication.
 
 # Build and Test Instructions
 
-# Prerequisites
+## Prerequisites
 
 * cmake
 * ninja
+* make
+* LLVM dependencies (e.g. Python, C++11 compiler, etc)
+
+## Prerequisites
 
 ```bash
 
