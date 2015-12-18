@@ -1,4 +1,4 @@
-; RUN: opt --load libglobal-to-wide.so -global-to-wide -S < %s | FileCheck %s
+; RUN: opt --load %bindir/lib/llvm-pgas${MOD_EXT} -global-to-wide -S < %s | FileCheck %s
 
 target datalayout = "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:128:128-a0:0:64-s0:64:64-f80:128:128-n8:16:32:64-S128-p100:64:64:64"
 
@@ -35,7 +35,7 @@ entry:
   %loadme.cast = bitcast i64 addrspace(100)* %loadme to i8 addrspace(100)*
   %a.cast = bitcast i64 * %a to i8 *
   call void @llvm.memcpy.p0i8.p100i8.i64(i8* %a.cast, i8 addrspace(100)* %loadme.cast, i64 8, i32 1, i1 true)
-  %ret = load i64 * %a
+  %ret = load i64, i64 * %a
   ret i64 %ret
 }
 
@@ -61,7 +61,7 @@ define i64 @read_int(i64 addrspace(100)* %src) {
 ; CHECK-NOT: @.gf
 ; CHECK: ret i64
 entry:
-  %ret = load i64 addrspace(100)* %src
+  %ret = load i64, i64 addrspace(100)* %src
   ret i64 %ret
 }
 
