@@ -1687,7 +1687,8 @@ namespace {
 }
 
 char GlobalToWide::ID = 0;
-static RegisterPass<GlobalToWide> X("global-to-wide", "GlobalToWide Pass");
+static RegisterPass<GlobalToWide> X("global-to-wide", "GlobalToWide Pass",
+    false /* Only looks at CFG */, false /* Analysis paass */);
 
 ModulePass *createGlobalToWide(GlobalToWideInfo* info, std::string setLayout)
 {

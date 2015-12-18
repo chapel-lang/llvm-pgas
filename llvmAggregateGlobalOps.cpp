@@ -483,10 +483,10 @@ void MemOpRanges::addRange(int64_t Start, int64_t Size, int64_t Slack, Value *Pt
     Instruction *tryAggregating(Instruction *I, Value *StartPtr, bool DebugThis);
   };
 
-  char AggregateGlobalOpsOpt::ID = 0;
-  static RegisterPass<AggregateGlobalOpsOpt> X("aggregate-global-ops", "Aggregate Global Pointer Operations", false /* only looks at CFG */, false /* Analysis pass */ );
-
 } // end anon namespace.
+
+char AggregateGlobalOpsOpt::ID = 0;
+static RegisterPass<AggregateGlobalOpsOpt> X("aggregate-global-ops", "Aggregate Global Pointer Operations", false /* only looks at CFG */, false /* Analysis pass */ );
 
 // createAggregateGlobalOpsOptPass - The public interface to this file...
 FunctionPass *createAggregateGlobalOpsOptPass(unsigned globalSpace)
