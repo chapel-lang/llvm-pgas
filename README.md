@@ -93,3 +93,11 @@ After the usual LLVM optimization passes run, two PGAS LLVM passes run:
   pointer. In the future, we would like to support converting address space 100
   pointers into 128-bit structure-based wide pointers.
 
+
+These optimizations, as well as other PGAS LLVM optimizations, are
+described in this paper:
+
+[LLVM-based Communication Optimizations for PGAS
+Programs](http://ahayashi.blogs.rice.edu/files/2013/07/Chapel_LLVM_camera_ready-q6usv4.pdf).  Akihiro Hayashi, Jisheng Zhao, Michael Ferguson, Vivek Sarkar.  2nd Workshop on the LLVM Compiler Infrastructure in HPC (LLVM-HPC2), November
+2015.
+
