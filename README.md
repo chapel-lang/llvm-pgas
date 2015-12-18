@@ -19,7 +19,7 @@ LLVM optimizations can apply to remove communication.
 * make
 * LLVM dependencies (e.g. Python, C++11 compiler, etc)
 
-## Prerequisites
+## Quick Commands
 
 ```bash
 
