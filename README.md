@@ -22,19 +22,25 @@ LLVM optimizations can apply to remove communication.
 # Download LLVM 3.7
 git clone http://llvm.org/git/llvm.git
 pushd llvm
+
 git checkout release_37
 mkdir -p build/Release
 mkdir -p install
+
 cd build/Release/
-cmake ../.. -GNinja -DLLVM_ENABLE_CXX11=ON -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX=`pwd`/../install -DLLVM_ENABLE_ASSERTIONS=ON
+
+cmake ../.. -GNinja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX=`pwd`/../../install -DLLVM_ENABLE_ASSERTIONS=ON -DLLVM_INSTALL_UTILS=ON
+
 ninja
 ninja install
 popd
 
 # Back in the llvm-pgas directory
-mkdir build
-cmake .. -DLLVM_ROOT=`pwd`/llvm/install -DLLVM_SRC=`pwd`/llvm
+mkdir -p build
+cd build
+cmake .. -DLLVM_ROOT=`pwd`/../llvm/install -DLLVM_SRC=`pwd`/../llvm
 make
 make check
+cd ..
 
 ```

@@ -73,6 +73,10 @@ foreach( test_file ${test_files} )
     "${CMAKE_CURRENT_BINARY_DIR}/${test_file}" COPYONLY)
 endforeach( test_file )
 
+if(NOT EXISTS ${LLVM_ROOT}/bin/FileCheck)
+    message(FATAL_ERROR "need FileCheck installed to run tests; configure LLVM with -DLLVM_INSTALL_UTILS")
+endif()
+
 # support make check with the LLVM tester lit in the tests directory
 add_custom_target(check
     COMMAND ${PYTHON_EXECUTABLE} ${LLVM_LIT}
