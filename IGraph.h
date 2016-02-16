@@ -45,7 +45,6 @@ using namespace llvm;
 
 class Node {
 private:
-    StringRef name;
     Value* value;
     vector<Node*> children;
     vector<Node*> parents;
@@ -86,8 +85,7 @@ public:
 	    child->addParents(this);
 	}
     }
-    
-    StringRef getName() const { return name; }
+
     Value* getValue() const { return value; }
 
 };
@@ -173,18 +171,18 @@ namespace llvm {
 
 	static std::string getSimpleNodeLabel(const Node* node,
 					      const IGraph *) {
-	    if (!node->getName().empty())
-		return node->getName().str();
+	    if (!node->getValue()->getName().empty())
+		return node->getValue()->getName().str();
 
 	    std::string Str;
 	    raw_string_ostream OS(Str);
 	    const Value *value = node->getValue();
 #if HAVE_LLVM_VER >= 35
-	    OS << value->getName();
+	    value->printAsOperand(OS, false);
 #else	    
 	    WriteAsOperand(OS, value, false);
 #endif	    
-	    OS << "FIXME";
+
 	    return OS.str();
 	}
 
@@ -192,45 +190,43 @@ namespace llvm {
 						const IGraph *) {
 	    std::string Str;
 	    raw_string_ostream OS(Str);
-	    if (node->getName().empty()) {
-#if HAVE_LLVM_VER >= 35 		    
-		OS << node->getValue()->getName();
-#else
-		WriteAsOperand(OS, node->getValue(), false);
-#endif		    
-		OS << ", LL(";
-#if HAVE_LLVM_VER >= 35 		    
-		OS << node->getValue()->getName();
-#else
-		WriteAsOperand(OS, node->getValue(), false);
-#endif		    
-		OS << ") = " << node->getLL(node->getValue()) << " : ";
-	    }
-	    OS << *node->getValue(); 
-	    OS << " ";
-	    Instruction *insn = dyn_cast<Instruction>(node->getValue());
+	    Value* value = node->getValue();
+
+	    Instruction *insn = dyn_cast<Instruction>(value);
 	    if (insn) {
+		OS << *insn << "\n";
 		for(unsigned int i=0; i < insn->getNumOperands(); i++) {
 		    Value *op = insn->getOperand(i);
-		    OS << ", LL(";
+		    if (i != 0 ) OS << ", ";
+		    OS << "LL(";
 #if HAVE_LLVM_VER >= 35 		    
-		    OS << op->getName();
+		    op->printAsOperand(OS, false);
 #else
 		    WriteAsOperand(OS, op, false);
-#endif		    
-		    OS << ") = " << node->getLL(op);
+#endif
+		    OS << ") = " << node->getLL(op) << " ";
 		}
+	    } else {
+#if HAVE_LLVM_VER >= 35 		    
+		value->printAsOperand(OS, false);
+#else
+		WriteAsOperand(OS, value, false);
+#endif		    
 	    }
+	   
 	    std::string OutStr = OS.str();
+	    // 
 	    if (OutStr[0] == '\n') OutStr.erase(OutStr.begin());
 
-	    // Process string output to make it nicer...
+	    // Process OutStr for DOT format
 	    for (unsigned i = 0; i != OutStr.length(); ++i) {
-		if (OutStr[i] == '\n') {                            // Left justify
+		if (OutStr[i] == '\n') {        
 		    OutStr[i] = '\\';
 		    OutStr.insert(OutStr.begin()+i+1, 'l');
-		} else if (OutStr[i] == ';') {                      // Delete comments!
-		    unsigned Idx = OutStr.find('\n', i+1);            // Find end of line
+		} else if (OutStr[i] == ';') {
+                    // Delete comments!
+		    unsigned Idx = OutStr.find('\n', i+1);
+                    // Find end of line
 		    OutStr.erase(OutStr.begin()+i, OutStr.begin()+Idx);
 		    --i;
 		}
