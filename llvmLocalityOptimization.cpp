@@ -136,7 +136,7 @@ namespace {
     // For Debug
     static bool debugPassInsn = true;
     static const bool extraChecks = false;
-    static const char* debugThisFn = "";
+    static const char* debugThisFn = "habanero";
 
     // For Chapel Compiler & Breakdown
     static const bool fLLVMDisableIG = false;
@@ -303,50 +303,6 @@ namespace {
 	    return false;
 	}
 
-	IGraph* createIGraph(Module &M, Function *F) {
-	    IGraph *G = new IGraph(F->getName());
-	    for (Function::arg_iterator I = F->arg_begin(), 
-		     E = F->arg_end(); I!=E; ++I) {
-		Value *srcVal = I;
-		Node *srcNode = G->getNodeByValue(srcVal);
-		if (srcNode == NULL) {
-		    srcNode = new Node(srcVal);
-		    G->addNode(srcNode);
-		}
-		for (User *U : I->users()) {
-		    Value* dstVal = U;
-		    Node *dstNode = G->getNodeByValue(dstVal);
-		    if (dstNode == NULL) {
-			dstNode = new Node(dstVal);
-			G->addNode(dstNode);
-		    }
-		    srcNode->addChild(dstNode);
-		}
-	    }
-	    for (Function::iterator BI = F->begin(), BE = F->end(); BI != BE; BI++) {
-		BasicBlock* BB = BI;
-		for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; I++) {
-		    Instruction *insn = &*I;	
-		    Value *srcVal = insn;
-		    Node *srcNode = G->getNodeByValue(srcVal);
-		    if (srcNode == NULL) {
-			srcNode = new Node(srcVal);
-			G->addNode(srcNode);
-		    }
-		    for (User *U : I->users()) {
-			Value *dstVal = U;
-			Node *dstNode = G->getNodeByValue(dstVal);
-			if (dstNode == NULL) {
-			    dstNode = new Node(dstVal);
-			    G->addNode(dstNode);
-			}
-			srcNode->addChild(dstNode);
-		    }
-		}
-	    }
-	    return G;
-	}
-
 	void createValueTableInsn(ValueTable *vn, Instruction *insn) {
 	    if (insn->getType()->isVoidTy()) return;
 	    vn->lookup_or_add(insn);
@@ -366,6 +322,7 @@ namespace {
 		return false;
 	    }
 	    bool definitelyLocal = false;
+#if 0	    
 	    bool exempt = false;
 	    int ll = info->globalSpace;
 	    // find smallest possible locality level
@@ -388,6 +345,7 @@ namespace {
 		    errs () << *op << " is exempted\n";
 		}
 	    }
+#endif	    
 	    return definitelyLocal;
 	}
 
@@ -925,8 +883,9 @@ namespace {
 	    // Inspect all instructions and construt IGraph. Each node of IGraph contains a densemap that map that is one-to-one mapping of each operand into a specific address space (either 100 or 0).
 	    // If an instruction is enclosed by a local statement, set the locality level of each operand to 0.
 	    // Currently, we are assuming that gf.addr function calls correspond to Chapel's local statements, but this is not always true because gf.addr is also used to extract a local pointer from a wide pointer. We work on this later pass using NonLocals)       
-	    IGraph *G = createIGraph(M, F);
-
+	    IGraph *G = new IGraph(F->getName());
+	    G->construct(F, info);
+	    
 	    // Perform a reduced version of GVN 
 	    ValueTable *VN = createValueTable(F);
 

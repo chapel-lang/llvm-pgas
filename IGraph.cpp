@@ -28,50 +28,189 @@
 #include <string>
 #include <fstream>
 
+
+#if HAVE_LLVM_VER >= 35
+#include "llvm/IR/InstIterator.h"
+#else
+#include "llvm/Support/InstIterator.h"
+#endif
+
 using namespace std;
 using namespace llvm;
 
-unsigned int
-Node::getAddressSpace(Value* v)
-{
-    PointerType* pt = dyn_cast<PointerType>(v->getType());
-    if(pt) {
-	return pt->getAddressSpace();
-    } else {
-	return 0;
-    }
-}
-
-void
-Node::initLLMap()
-{
-    LLMap[value] = getAddressSpace(value);
-    // Instruction
-    Instruction *insn = dyn_cast<Instruction>(value);
-    if (!insn) return;
-    if (insn->getOpcode() != Instruction::Call) {
-	for(unsigned int i=0; i < insn->getNumOperands(); i++) {
-	    Value *op = insn->getOperand(i);
-	    LLMap[op] = getAddressSpace(op);
-	}
-    }
-    switch(insn->getOpcode()) {
-    case Instruction::Call: {
-	CallInst *call = cast<CallInst>(insn);
+Value* IGraph::getOperandIfLocalStmt(Instruction *insn) {
+    CallInst *call = dyn_cast<CallInst>(insn);
+    if (call) {
 	Function* f = call->getCalledFunction();
 	if (f != NULL) {
-	    /* *
-	     * We are assuming that gf.addr function calls correspond to Chapel's local statements, but this is not always true because gf.addr is also used to extract a local pointer from a wide pointer. We work on this later pass (see exemptionTest in llvmLocalityOptimization.cpp). 
-	     */  
+	    // calling @.gf.addr and then doing load and store => local statement
 	    if (f->getName().startswith(".gf.addr")) {
-		// Argument of ".gf.addr" is definitely local
-		for (unsigned int i = 0; i < call->getNumArgOperands(); i++) {
-		    Value* v = call->getArgOperand(i);
-		    LLMap[v] = 0;
+		for (User *U : call->getArgOperand(0)->users()) {
+		    Value *UI = U;
+		    if (isa<LoadInst>(*UI) || isa<StoreInst>(*UI)) {
+			return call->getArgOperand(0);
+		    }
 		}
- 	    }
+	    }
 	}
-	break;
     }
-    }    
+    return NULL;
+}
+
+void IGraph::construct(Function *F, GlobalToWideInfo *info) {
+
+    if (debug) {
+	errs () << "[Inequality Graph Construction for " << F->getName() << "]\n";
+    }
+    
+    /* 1. collect addrspace 100 pointers that is used in the next step. */
+    /*    1. construct a set of addrspace 100 pointers. */
+    /*    2. construct a list of blocks that def/use the pointer. */
+    SmallVector<Value*, 128> possiblyRemotePtrs;
+    SmallVector<Value*, 128> possiblyRemoteArgs;
+    // analyze arguments
+    for (Function::arg_iterator I = F->arg_begin(), E = F->arg_end(); I!=E; ++I) {
+	Value *arg = I;	
+	if (arg->getType()->isPointerTy() && arg->getType()->getPointerAddressSpace() == info->globalSpace) {
+	    if (find(possiblyRemotePtrs.begin(),
+		     possiblyRemotePtrs.end(),
+		     arg) == possiblyRemotePtrs.end()) {
+		possiblyRemotePtrs.push_back(arg);
+	    }
+	    if (find(possiblyRemoteArgs.begin(),
+		     possiblyRemoteArgs.end(),
+		     arg) == possiblyRemoteArgs.end()) {
+		possiblyRemoteArgs.push_back(arg);
+	    }
+	}
+    }
+
+    // analyze instructions
+    DenseMap<Instruction*, std::tuple<NodeKind, Value*, Instruction*, int>> NodeCandidates;
+    for (inst_iterator II = inst_begin(F), IE = inst_end(F); II != IE; ++II) {
+	Instruction *insn = &*II;
+	bool needToWork = false;
+	// 
+	NodeKind kind = NODE_NONE;
+	Value *ptrOp = NULL;
+	int addrspace = 100;
+	// 
+	switch (insn->getOpcode()) {
+	case Instruction::Load: {
+	    LoadInst *load = cast<LoadInst>(insn);
+	    if(load->getPointerAddressSpace() == info->globalSpace) {
+		needToWork = true;
+		kind = NODE_USE;
+		ptrOp = load->getPointerOperand();
+		addrspace = 100;
+	    }
+	    break;
+	}
+	case Instruction::Call: {
+	    ptrOp = getOperandIfLocalStmt(insn);
+	    if (ptrOp) {
+		needToWork = true;
+		kind = NODE_DEF;
+		addrspace = 0;
+	    }
+	}
+	// TODO: store/getelementptr insn	
+	}
+	if (needToWork) {
+	    // collect possibly remote pointers
+	    if (find(possiblyRemotePtrs.begin(),
+		     possiblyRemotePtrs.end(),
+		     ptrOp) == possiblyRemotePtrs.end()) {
+		possiblyRemotePtrs.push_back(ptrOp);
+	    }
+	    // store detailed information used in node construction.	    
+	    NodeCandidates[insn] = std::make_tuple(kind, ptrOp, insn, addrspace);
+	}
+    }
+	
+    /* 2. for each pointer do the following. */
+    /* */
+    for (SmallVector<Value*, 128>::iterator I = possiblyRemotePtrs.begin(),
+	     E = possiblyRemotePtrs.end(); I != E; I++) {
+	Value* val = *I;
+	if (debug) {
+	    errs () << "Working on :" << *val << "\n";	    
+	}
+
+	DenseMap<BasicBlock*, std::pair<Node*, Node*>> BBInfo;
+	// Intra-block edge
+	Node *entry = NULL;
+	for (Function::iterator BI = F->begin(), BE = F->end(); BI != BE; BI++) {
+	    BasicBlock* BB = BI;
+	    Node *firstNode = NULL;
+	    Node *lastNode = NULL;
+	    
+	    // entry node 
+	    if (BI == F->begin()) {
+		if (find(possiblyRemoteArgs.begin(),
+			 possiblyRemoteArgs.end(),
+			 val) != possiblyRemoteArgs.end()) {				
+		    Node *n = new Node(NODE_DEF, val, NULL, 0, 100);
+		    this->addNode(n);
+		    entry = n;
+		    firstNode = n;
+		    lastNode = n;
+		}		
+	    }
+	    
+	    for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; I++) {
+		// add edge if needed
+		Instruction *insn = &*I;
+		if (NodeCandidates.find(insn) != NodeCandidates.end()) {
+		    std::tuple<NodeKind, Value*, Instruction*, int> &info = NodeCandidates[insn];
+		    Node *n = new Node(std::get<0>(info),  // Kind
+				       std::get<1>(info),  // Value
+				       std::get<2>(info),  // Insn
+				       0,                  // Version (0 for now)
+				       std::get<3>(info)); // Locality (either 0 or 100)
+		    this->addNode(n);
+		    if (!firstNode) {
+			firstNode = n;
+		    }
+		    if (lastNode) {
+			lastNode->addChild(n);
+			n->addParents(lastNode);
+		    }
+		    lastNode = n;
+		}		
+	    }
+	    //
+	    BBInfo[BB] = std::make_pair(firstNode, lastNode);	    
+	}
+	
+	// Inter-block edge
+	for (Function::iterator BI = F->begin(), BE = F->end(); BI != BE; BI++) {
+	    BasicBlock* BB = BI;
+	    std::pair<Node*, Node*> &SrcBBinfo = BBInfo[BB];
+	    const TerminatorInst *TInst = BB->getTerminator();
+	    // get the last node of the current BB
+	    Node* srcNode = std::get<1>(SrcBBinfo);
+	    if (!srcNode) {
+		continue;
+	    }
+	    // Succ	    
+	    for (unsigned I = 0, NSucc = TInst->getNumSuccessors(); I < NSucc; I++) {
+		BasicBlock *Succ = TInst->getSuccessor(I);
+		std::pair<Node*, Node*> &DstBBinfo = BBInfo[Succ];
+		Node* dstNode = std::get<0>(DstBBinfo);
+		if (dstNode) {
+		    srcNode->addChild(dstNode);
+		    dstNode->addParents(srcNode);
+		}
+	    }		    
+	}
+	// Dominator Tree Computation
+
+        // Dominator Frontier Computation
+	
+	// phi-insertion
+	
+	// renaming
+	
+    }       
 }

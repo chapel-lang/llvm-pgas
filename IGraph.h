@@ -32,6 +32,9 @@
 #include "llvm/Support/DOTGraphTraits.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvmUtil.h"
+#include "llvmGlobalToWide.h"
+#include "llvm/Support/GenericDomTree.h"
+#include "llvm/Support/GenericDomTreeConstruction.h"
 
 #if HAVE_LLVM_VER >= 35
 #else
@@ -43,39 +46,53 @@
 using namespace std;
 using namespace llvm;
 
+
+enum NodeKind {
+    NODE_DEF,
+    NODE_USE,
+    NODE_PHI,
+    NODE_NONE
+};
+
 class Node {
 private:
+    // 
+    NodeKind kind;    
     Value* value;
+    Instruction* insn;
+    unsigned int version;
+    int locality;
+    //
     vector<Node*> children;
     vector<Node*> parents;
-    DenseMap<Value*, unsigned> LLMap;
-    unsigned int getAddressSpace(Value *v);
-    void initLLMap();
 
 public:
-    Node(Value* _value) { value = _value; initLLMap(); };
+    Node(NodeKind _kind, Value* _value, Instruction* _insn, unsigned int _version, int _locality) {
+	kind = _kind;	
+	value = _value;
+	insn = _insn;
+	version = _version;
+	locality = _locality;
+	
+    };
 
     // parents
     vector<Node*>::iterator parents_begin() { return parents.begin(); }
     vector<Node*>::iterator parents_end() { return parents.end(); }
+    vector<Node*>::const_iterator parents_begin() const { return parents.begin(); }
+    vector<Node*>::const_iterator parents_end() const { return parents.end(); }
     // children
     vector<Node*>::iterator begin() { return children.begin(); }
     vector<Node*>::iterator end() { return children.end(); }
     vector<Node*>::const_iterator begin() const { return children.begin(); }
     vector<Node*>::const_iterator end() const { return children.end(); }
-
-    int getLL(Value* v) const {
-	int ll;
-	if (LLMap.find(v) != LLMap.end()) { 
-		ll = LLMap.find(v)->second;
-	} else {
-	    ll = -1;
-	}
-	return ll;
-    }
     
     void addParents(Node* parent) {
-	parents.push_back(parent);
+	vector<Node*>::iterator I = find(parents.begin(), parents.end(), parent);
+        if( I == parents.end() ){	    
+	    parents.push_back(parent);
+	    parent->addChild(this);
+	}
     }
 
     void addChild(Node *child) { 
@@ -87,17 +104,38 @@ public:
     }
 
     Value* getValue() const { return value; }
+    NodeKind getKind() const { return kind; }
+    unsigned int getVersion() const { return version; }
+    int getLocality() const { return locality; }
 
+    void dump() {
+	errs () << this->getLocality() << " : ";
+	this->getValue()->dump();	
+    }
+
+    void printAsOperand(raw_ostream &o, bool) {
+
+    }
+    
 };
 
 class IGraph {
 private:
     StringRef name;
-    Node* entry;
+    // required?
+    Node* entry;    
     vector<Node*> nodes;
+    // required?
     vector<Node*> getRootNodes() { return nodes; }
+    Value* getOperandIfLocalStmt(Instruction *insn);
+
+    //
+    bool debug = true;
+    
 public:
     IGraph (StringRef _name) { name = _name; }
+    void construct(Function *F, GlobalToWideInfo *info);
+    
     Node* getEntry() const { return entry; }
     StringRef getName() const { return name; }
     
@@ -125,15 +163,38 @@ public:
 };
 
 namespace llvm {
+    // for Graph Traits
+    // Graph Traits requires you to provide the following
+    // (for more details see "llvm/ADT/GraphTraits.h") :
+
+    // typedef NodeType          - Type of Node in the graph
+    // typedef ChildIteratorType - Type used to iterate over children in graph    
+    // static NodeType *getEntryNode(const GraphType &)
+    //    Return the entry node of the graph    
+    // static ChildIteratorType child_begin(NodeType *)
+    // static ChildIteratorType child_end  (NodeType *)
+    //    Return iterators that point to the beginning and ending of the child
+    //    node list for the specified node.
+    //        
+    // typedef  ...iterator nodes_iterator;
+    // static nodes_iterator nodes_begin(GraphType *G)
+    // static nodes_iterator nodes_end  (GraphType *G)
+    //    nodes_iterator/begin/end - Allow iteration over all nodes in the graph    
+    // static unsigned       size       (GraphType *G)
+    //    Return total number of nodes in the graph
+
+    
+    // template specialization for <Node*>
     template<> struct GraphTraits<Node*> {
 	typedef Node NodeType;
 	typedef std::vector<Node*>::iterator ChildIteratorType;
-	
+		
 	static NodeType *getEntryNode(Node *node) { return node; }
 	static inline ChildIteratorType child_begin(NodeType *N) { return N->begin(); }
 	static inline ChildIteratorType child_end(NodeType *N) { return N->end(); }
-
     };
+
+    // template specialization for <const Node*>
     template<> struct GraphTraits<const Node*> {
 	typedef const Node NodeType;
 	typedef vector<Node*>::const_iterator ChildIteratorType;
@@ -141,27 +202,30 @@ namespace llvm {
 	static NodeType *getEntryNode(const Node *node) { return node; }
 	static inline ChildIteratorType child_begin(const NodeType *N) { return N->begin(); }
 	static inline ChildIteratorType child_end(const NodeType *N) { return N->end(); }
-
     };
 
+    // template specialization for <IGraph*>
     template<> struct GraphTraits<IGraph*> : public GraphTraits<Node*> {
 	static NodeType *getEntryNode(IGraph *G) { return G->getEntry(); }
 	typedef std::vector<Node*>::iterator nodes_iterator;
 
 	static nodes_iterator nodes_begin(IGraph *G) { return G->begin(); }
 	static nodes_iterator nodes_end(IGraph *G) { return G->end(); }
-	static unsigned nodes_size(IGraph *G) { return G->size(); }
+	static unsigned size(IGraph *G) { return G->size(); };
     };
 
+    // template specialization for <const IGraph*>
     template<> struct GraphTraits<const IGraph*> : public GraphTraits<const Node*> {
 	static NodeType *getEntryNode(const IGraph *G) { return G->getEntry(); }
 	typedef vector<Node*>::const_iterator nodes_iterator;
 
 	static nodes_iterator nodes_begin(const IGraph *G) { return G->begin(); }
 	static nodes_iterator nodes_end(const IGraph *G) { return G->end(); }
-	static unsigned nodes_size(const IGraph *G) { return G->size(); }
+	static unsigned size(const IGraph *G) { return G->size(); }
     };
     
+
+    // template specialization for <const IGraph*> for Write Graph
     template<> struct DOTGraphTraits<const IGraph*> : public DefaultDOTGraphTraits {
 	DOTGraphTraits (bool isSimple=false) : DefaultDOTGraphTraits(isSimple) {}
 
@@ -191,29 +255,32 @@ namespace llvm {
 	    std::string Str;
 	    raw_string_ostream OS(Str);
 	    Value* value = node->getValue();
-
-	    Instruction *insn = dyn_cast<Instruction>(value);
-	    if (insn) {
-		OS << *insn << "\n";
-		for(unsigned int i=0; i < insn->getNumOperands(); i++) {
-		    Value *op = insn->getOperand(i);
-		    if (i != 0 ) OS << ", ";
-		    OS << "LL(";
-#if HAVE_LLVM_VER >= 35 		    
-		    op->printAsOperand(OS, false);
-#else
-		    WriteAsOperand(OS, op, false);
+	    	    
+	    // print Node Information
+	    switch (node->getKind()) {
+	    case NODE_DEF:
+#if HAVE_LLVM_VER >= 35
+	    value->printAsOperand(OS, false);
+#else	    
+	    WriteAsOperand(OS, value, false);
 #endif
-		    OS << ") = " << node->getLL(op) << " ";
-		}
-	    } else {
-#if HAVE_LLVM_VER >= 35 		    
-		value->printAsOperand(OS, false);
-#else
-		WriteAsOperand(OS, value, false);
-#endif		    
+	    OS << "_" << node->getVersion() << " = " << node->getLocality();
+	    break;
+	    case NODE_USE:
+		OS << "... = ";
+#if HAVE_LLVM_VER >= 35
+	    value->printAsOperand(OS, false);
+#else	    
+	    WriteAsOperand(OS, value, false);
+#endif	    
+	    OS << "_" << node->getVersion();
+		break;
+	    case NODE_PHI:
+		break;
+	    default:
+		assert(0 && "Inequality Graph Node Type should not be NODE_NONE");
 	    }
-	   
+
 	    std::string OutStr = OS.str();
 	    // 
 	    if (OutStr[0] == '\n') OutStr.erase(OutStr.begin());
@@ -243,30 +310,11 @@ namespace llvm {
 	}
 
 	static std::string getEdgeSourceLabel(const Node *node,
-					      vector<Node*>::const_iterator I) {
-#if 0
-	    // Label source of conditional branches with "T" or "F"
-	    if (const BranchInst *BI = dyn_cast<BranchInst>(Node->getTerminator()))
-		if (BI->isConditional())
-		    return (I == succ_begin(Node)) ? "T" : "F";
-    
-	    // Label source of switch edges with the associated value.
-	    if (const SwitchInst *SI = dyn_cast<SwitchInst>(Node->getTerminator())) {
-		unsigned SuccNo = I.getSuccessorIndex();
-
-		if (SuccNo == 0) return "def";
-      
-		std::string Str;
-		raw_string_ostream OS(Str);
-		SwitchInst::ConstCaseIt Case =
-		    SwitchInst::ConstCaseIt::fromSuccessorIndex(SI, SuccNo); 
-		OS << Case.getCaseValue()->getValue();
-		return OS.str();
-	    }    
-#endif
+					      vector<Node*>::const_iterator I) {	    
 	    return "";
 	}
-    };
+    };       
 }
+
 
 #endif // _IGRAPH_H_
