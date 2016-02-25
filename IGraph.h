@@ -50,6 +50,7 @@ using namespace llvm;
 
 
 enum NodeKind {
+    NODE_ENTRY,
     NODE_DEF,
     NODE_USE,
     NODE_PHI,
@@ -75,7 +76,6 @@ public:
 	insn = _insn;
 	version = _version;
 	locality = _locality;
-	
     };
 
     // parents
@@ -124,10 +124,8 @@ public:
 class IGraph {
 private:
     StringRef name;
-    // required?
     Node* entry;    
     vector<Node*> nodes;
-    // required?
     vector<Node*> getRootNodes() { return nodes; }
     Value* getOperandIfLocalStmt(Instruction *insn);
 
@@ -140,7 +138,8 @@ public:
     
     Node* getEntry() const { return entry; }
     StringRef getName() const { return name; }
-    
+
+    // Iterator for enumerating nodes of IGraph.
     vector<Node*>::iterator begin() { return nodes.begin(); }
     vector<Node*>::iterator end() { return nodes.end(); }
     vector<Node*>::const_iterator begin() const { return nodes.begin(); }
@@ -155,10 +154,10 @@ public:
 	}
 	return NULL;
     }
+
     void addNode(Node* n) { nodes.push_back(n); } 
 
     unsigned size() const { return nodes.size(); }
-    void createGraphVizFile(const char* fileName);
 
     // for Debug
     void dumpDOT();
@@ -185,7 +184,6 @@ namespace llvm {
     // static unsigned       size       (GraphType *G)
     //    Return total number of nodes in the graph
 
-    
     // template specialization for <Node*>
     template<> struct GraphTraits<Node*> {
 	typedef Node NodeType;
@@ -227,7 +225,7 @@ namespace llvm {
     };
     
 
-    // template specialization for <const IGraph*> for Write Graph
+    // template specialization for <const IGraph*> for Writing DOTGraph
     template<> struct DOTGraphTraits<const IGraph*> : public DefaultDOTGraphTraits {
 	DOTGraphTraits (bool isSimple=false) : DefaultDOTGraphTraits(isSimple) {}
 
@@ -260,6 +258,9 @@ namespace llvm {
 	    	    
 	    // print Node Information
 	    switch (node->getKind()) {
+	    case NODE_ENTRY:
+		OS << "entry";
+		break;
 	    case NODE_DEF:
 #if HAVE_LLVM_VER >= 35
 	    value->printAsOperand(OS, false);

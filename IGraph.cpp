@@ -62,6 +62,11 @@ void IGraph::construct(Function *F, GlobalToWideInfo *info) {
     if (debug) {
 	errs () << "[Inequality Graph Construction for " << F->getName() << "]\n";
     }
+
+    /* First create an entry node */
+    Node *entry = new Node(NODE_ENTRY, NULL, NULL, 0, 0);
+    this->entry = entry;
+    this->addNode(entry);
     
     /* 1. collect addrspace 100 pointers that is used in the next step. */
     /*    1. construct a set of addrspace 100 pointers. */
@@ -138,49 +143,59 @@ void IGraph::construct(Function *F, GlobalToWideInfo *info) {
 	}
 
 	DenseMap<BasicBlock*, std::pair<Node*, Node*>> BBInfo;
-	// Intra-block edge
-	Node *entry = NULL;
+	bool firstOccurrence = true;
+	// Create Intra-block edge
 	for (Function::iterator BI = F->begin(), BE = F->end(); BI != BE; BI++) {
 	    BasicBlock* BB = BI;
-	    Node *firstNode = NULL;
-	    Node *lastNode = NULL;
+	    // remember first and last node in BB so we can create edges between blocks.
+	    Node *firstNodeInBB = NULL;
+	    Node *lastNodeInBB = NULL;
 	    
-	    // entry node 
+	    // create node for arguments
 	    if (BI == F->begin()) {
 		if (find(possiblyRemoteArgs.begin(),
 			 possiblyRemoteArgs.end(),
 			 val) != possiblyRemoteArgs.end()) {				
 		    Node *n = new Node(NODE_DEF, val, NULL, 0, 100);
 		    this->addNode(n);
-		    entry = n;
-		    firstNode = n;
-		    lastNode = n;
+		    firstNodeInBB = n;
+		    lastNodeInBB = n;				    
+		    if (firstOccurrence) {
+			entry->addChild(n);
+		    }
 		}		
 	    }
-	    
+
+	    // For each instruction
+	    // Create a node if an instruction contains possibly-remote access
 	    for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; I++) {
 		// add edge if needed
 		Instruction *insn = &*I;
 		if (NodeCandidates.find(insn) != NodeCandidates.end()) {
 		    std::tuple<NodeKind, Value*, Instruction*, int> &info = NodeCandidates[insn];
+		    // create a new node.
 		    Node *n = new Node(std::get<0>(info),  // Kind
 				       std::get<1>(info),  // Value
 				       std::get<2>(info),  // Insn
 				       0,                  // Version (0 for now)
 				       std::get<3>(info)); // Locality (either 0 or 100)
+		    // register the created node to the Graph.
 		    this->addNode(n);
-		    if (!firstNode) {
-			firstNode = n;
+		    if (!firstNodeInBB) {
+			// First node in the current BB.
+			firstNodeInBB = n;			
 		    }
-		    if (lastNode) {
-			lastNode->addChild(n);
-			n->addParents(lastNode);
+		    if (lastNodeInBB) {
+			// There exists a predecessor node here.
+			// append the created node to a predecessor node.
+			lastNodeInBB->addChild(n);
+			n->addParents(lastNodeInBB);
 		    }
-		    lastNode = n;
+		    lastNodeInBB = n;
 		}		
 	    }
 	    //
-	    BBInfo[BB] = std::make_pair(firstNode, lastNode);	    
+	    BBInfo[BB] = std::make_pair(firstNodeInBB, lastNodeInBB);	    
 	}
 	
 	// Inter-block edge
