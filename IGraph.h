@@ -35,7 +35,6 @@
 #include "llvmGlobalToWide.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/GenericDomTree.h"
-#include "llvm/Support/GenericDomTreeConstruction.h"
 #include "llvm/Support/GraphWriter.h"
 
 #if HAVE_LLVM_VER >= 35
@@ -48,12 +47,12 @@
 using namespace std;
 using namespace llvm;
 
-
 enum NodeKind {
     NODE_ENTRY,
     NODE_DEF,
     NODE_USE,
     NODE_PHI,
+    NODE_PI,
     NODE_NONE
 };
 
@@ -66,11 +65,18 @@ private:
     unsigned int version;
     int locality;
     //
-    vector<Node*> children;
-    vector<Node*> parents;
+    typedef std::vector<Node*> NodeElementType;
+    // 
+    NodeElementType children;
+    NodeElementType parents;
 
 public:
-    Node(NodeKind _kind, Value* _value, Instruction* _insn, unsigned int _version, int _locality) {
+    
+    Node(NodeKind _kind,
+	 Value* _value,
+	 Instruction* _insn,
+	 unsigned int _version,
+	 int _locality) {
 	kind = _kind;	
 	value = _value;
 	insn = _insn;
@@ -78,55 +84,92 @@ public:
 	locality = _locality;
     };
 
+    typedef NodeElementType::iterator iterator;
+    typedef NodeElementType::const_iterator const_iterator;
+    
     // parents
-    vector<Node*>::iterator parents_begin() { return parents.begin(); }
-    vector<Node*>::iterator parents_end() { return parents.end(); }
-    vector<Node*>::const_iterator parents_begin() const { return parents.begin(); }
-    vector<Node*>::const_iterator parents_end() const { return parents.end(); }
+    iterator parents_begin() { return parents.begin(); }
+    iterator parents_end() { return parents.end(); }
+    const_iterator parents_begin() const { return parents.begin(); }
+    const_iterator parents_end() const { return parents.end(); }
     // children
-    vector<Node*>::iterator begin() { return children.begin(); }
-    vector<Node*>::iterator end() { return children.end(); }
-    vector<Node*>::const_iterator begin() const { return children.begin(); }
-    vector<Node*>::const_iterator end() const { return children.end(); }
+    iterator children_begin() { return children.begin(); }
+    iterator children_end() { return children.end(); }
+    const_iterator children_begin() const { return children.begin(); }
+    const_iterator children_end() const { return children.end(); }
     
     void addParents(Node* parent) {
-	vector<Node*>::iterator I = find(parents.begin(), parents.end(), parent);
-        if( I == parents.end() ){	    
+	iterator I = find(parents_begin(), parents_end(), parent);
+        if( I == parents_end() ){
 	    parents.push_back(parent);
 	    parent->addChild(this);
 	}
     }
 
     void addChild(Node *child) { 
-	vector<Node*>::iterator I = find(children.begin(), children.end(), child);
+	iterator I = find(children_begin(), children_end(), child);
         if( I == children.end() ){
-	    children.push_back(child); 
+	    children.push_back(child);
 	    child->addParents(this);
 	}
     }
 
     Value* getValue() const { return value; }
     NodeKind getKind() const { return kind; }
-    unsigned int getVersion() const { return version; }
+    unsigned int getVersion() const { return version; }   
     int getLocality() const { return locality; }
 
-    void dump() {
-	errs () << this->getLocality() << " : ";
-	this->getValue()->dump();	
+    // for debug
+    void dump() const {
+	printAsOperand(errs(), true);
+	errs () << "\n";
     }
 
-    void printAsOperand(raw_ostream &o, bool) {
-
+    void printAsOperand(raw_ostream &o, bool) const {
+	// print Node Information
+	switch (this->getKind()) {
+	case NODE_ENTRY:
+	    o << "entry";
+	    break;
+	case NODE_DEF:
+#if HAVE_LLVM_VER >= 35
+	    value->printAsOperand(o, false);
+#else	    
+	    WriteAsOperand(o, value, false);
+#endif
+	    o << "_" << this->getVersion() << " = " << this->getLocality();
+	    break;
+	case NODE_USE:
+	    o << "... = ";
+#if HAVE_LLVM_VER >= 35
+	    value->printAsOperand(o, false);
+#else	    
+	    WriteAsOperand(o, value, false);
+#endif	    
+	    o << "_" << this->getVersion();
+	    break;
+	case NODE_PHI:
+	case NODE_PI:
+	    break;
+	default:
+		assert(0 && "Inequality Graph Node Type should not be NODE_NONE");
+	}
+	
     }
     
 };
 
 class IGraph {
 private:
+    // the name of IGraph, which is used for DOT graph generation
     StringRef name;
-    Node* entry;    
-    vector<Node*> nodes;
-    vector<Node*> getRootNodes() { return nodes; }
+    // entry node
+    Node* entry;
+    // List of nodes in IGraph
+    typedef std::vector<Node*> NodeListType;
+    NodeListType nodes;
+    
+    NodeListType getRootNodes() { return nodes; }
     Value* getOperandIfLocalStmt(Instruction *insn);
 
     //
@@ -139,14 +182,17 @@ public:
     Node* getEntry() const { return entry; }
     StringRef getName() const { return name; }
 
+    typedef NodeListType::iterator iterator;
+    typedef NodeListType::const_iterator const_iterator;
+
     // Iterator for enumerating nodes of IGraph.
-    vector<Node*>::iterator begin() { return nodes.begin(); }
-    vector<Node*>::iterator end() { return nodes.end(); }
-    vector<Node*>::const_iterator begin() const { return nodes.begin(); }
-    vector<Node*>::const_iterator end() const { return nodes.end(); }
+    iterator begin() { return nodes.begin(); }
+    const_iterator begin() const { return nodes.begin(); }
+    iterator end() { return nodes.end(); }
+    const_iterator end() const { return nodes.end(); }
 
     Node* getNodeByValue(const Value* v) { 
-	for (vector<Node*>::iterator I = nodes.begin(), E = nodes.end(); I != E; I++) {
+	for (NodeListType::iterator I = nodes.begin(), E = nodes.end(); I != E; I++) {
 	    Node* tmp = *I;
 	    if (v == tmp->getValue()) {
 		return tmp;
@@ -155,8 +201,7 @@ public:
 	return NULL;
     }
 
-    void addNode(Node* n) { nodes.push_back(n); } 
-
+    void addNode(Node* n) { nodes.push_back(n); }
     unsigned size() const { return nodes.size(); }
 
     // for Debug
@@ -183,48 +228,28 @@ namespace llvm {
     //    nodes_iterator/begin/end - Allow iteration over all nodes in the graph    
     // static unsigned       size       (GraphType *G)
     //    Return total number of nodes in the graph
-
-    // template specialization for <Node*>
-    template<> struct GraphTraits<Node*> {
-	typedef Node NodeType;
-	typedef std::vector<Node*>::iterator ChildIteratorType;
-		
-	static NodeType *getEntryNode(Node *node) { return node; }
-	static inline ChildIteratorType child_begin(NodeType *N) { return N->begin(); }
-	static inline ChildIteratorType child_end(NodeType *N) { return N->end(); }
-    };
+    /* The followings are used for DOT Graph generation by DOTGraphTraits */
 
     // template specialization for <const Node*>
     template<> struct GraphTraits<const Node*> {
 	typedef const Node NodeType;
-	typedef vector<Node*>::const_iterator ChildIteratorType;
+	typedef NodeType::const_iterator ChildIteratorType;
 	
 	static NodeType *getEntryNode(const Node *node) { return node; }
-	static inline ChildIteratorType child_begin(const NodeType *N) { return N->begin(); }
-	static inline ChildIteratorType child_end(const NodeType *N) { return N->end(); }
+	static inline ChildIteratorType child_begin(const NodeType *N) { return N->children_begin(); }
+	static inline ChildIteratorType child_end(const NodeType *N) { return N->children_end(); }
     };
-
-    // template specialization for <IGraph*>
-    template<> struct GraphTraits<IGraph*> : public GraphTraits<Node*> {
-	static NodeType *getEntryNode(IGraph *G) { return G->getEntry(); }
-	typedef std::vector<Node*>::iterator nodes_iterator;
-
-	static nodes_iterator nodes_begin(IGraph *G) { return G->begin(); }
-	static nodes_iterator nodes_end(IGraph *G) { return G->end(); }
-	static unsigned size(IGraph *G) { return G->size(); };
-    };
-
+    
     // template specialization for <const IGraph*>
     template<> struct GraphTraits<const IGraph*> : public GraphTraits<const Node*> {
 	static NodeType *getEntryNode(const IGraph *G) { return G->getEntry(); }
-	typedef vector<Node*>::const_iterator nodes_iterator;
+	typedef IGraph::const_iterator nodes_iterator;
 
 	static nodes_iterator nodes_begin(const IGraph *G) { return G->begin(); }
 	static nodes_iterator nodes_end(const IGraph *G) { return G->end(); }
 	static unsigned size(const IGraph *G) { return G->size(); }
     };
     
-
     // template specialization for <const IGraph*> for Writing DOTGraph
     template<> struct DOTGraphTraits<const IGraph*> : public DefaultDOTGraphTraits {
 	DOTGraphTraits (bool isSimple=false) : DefaultDOTGraphTraits(isSimple) {}
@@ -233,61 +258,18 @@ namespace llvm {
 	    return "Inequality Graph for '" + G->getName().str();
 	}
 
-	static std::string getSimpleNodeLabel(const Node* node,
-					      const IGraph *) {
-	    if (!node->getValue()->getName().empty())
-		return node->getValue()->getName().str();
-
-	    std::string Str;
-	    raw_string_ostream OS(Str);
-	    const Value *value = node->getValue();
-#if HAVE_LLVM_VER >= 35
-	    value->printAsOperand(OS, false);
-#else	    
-	    WriteAsOperand(OS, value, false);
-#endif	    
-
-	    return OS.str();
-	}
-
-	static std::string getCompleteNodeLabel(const Node *node, 
-						const IGraph *) {
+	std::string getNodeLabel(const Node *node,
+				 const IGraph *graph) {
 	    std::string Str;
 	    raw_string_ostream OS(Str);
 	    Value* value = node->getValue();
-	    	    
-	    // print Node Information
-	    switch (node->getKind()) {
-	    case NODE_ENTRY:
-		OS << "entry";
-		break;
-	    case NODE_DEF:
-#if HAVE_LLVM_VER >= 35
-	    value->printAsOperand(OS, false);
-#else	    
-	    WriteAsOperand(OS, value, false);
-#endif
-	    OS << "_" << node->getVersion() << " = " << node->getLocality();
-	    break;
-	    case NODE_USE:
-		OS << "... = ";
-#if HAVE_LLVM_VER >= 35
-	    value->printAsOperand(OS, false);
-#else	    
-	    WriteAsOperand(OS, value, false);
-#endif	    
-	    OS << "_" << node->getVersion();
-		break;
-	    case NODE_PHI:
-		break;
-	    default:
-		assert(0 && "Inequality Graph Node Type should not be NODE_NONE");
-	    }
-
+	    
+	    node->printAsOperand(OS, true);
 	    std::string OutStr = OS.str();
-	    // 
+	    
+	    // Erase  
 	    if (OutStr[0] == '\n') OutStr.erase(OutStr.begin());
-
+	    
 	    // Process OutStr for DOT format
 	    for (unsigned i = 0; i != OutStr.length(); ++i) {
 		if (OutStr[i] == '\n') {        
@@ -304,16 +286,8 @@ namespace llvm {
 	    return OutStr;
 	}
 
-	std::string getNodeLabel(const Node *node,
-				 const IGraph *graph) {
-	    if (isSimple())
-		return getSimpleNodeLabel(node, graph);
-	    else
-		return getCompleteNodeLabel(node, graph);
-	}
-
 	static std::string getEdgeSourceLabel(const Node *node,
-					      vector<Node*>::const_iterator I) {	    
+					      Node::const_iterator I) {
 	    return "";
 	}
     };       

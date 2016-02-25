@@ -1227,7 +1227,7 @@ namespace {
 		if (debugPassInsn) {
 		    errs () << "Parent Insn : " << *node->getValue() <<"\n";
 		}
-		for (vector<Node*>::iterator I = node->parents_begin(), E = node->parents_end(); I != E; I++) {
+		for (Node::iterator I = node->parents_begin(), E = node->parents_end(); I != E; I++) {
 		    Node *tmp = *I;
 		    Value *v = tmp->getValue();
 		    if (debugPassInsn) {

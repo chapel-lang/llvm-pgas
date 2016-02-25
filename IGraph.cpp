@@ -220,7 +220,6 @@ void IGraph::construct(Function *F, GlobalToWideInfo *info) {
 	    }		    
 	}
 	// Dominator Tree Computation
-
         // Dominator Frontier Computation
 	
 	// phi-insertion
