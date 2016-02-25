@@ -33,8 +33,10 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvmUtil.h"
 #include "llvmGlobalToWide.h"
+#include "llvm/Support/FileSystem.h"
 #include "llvm/Support/GenericDomTree.h"
 #include "llvm/Support/GenericDomTreeConstruction.h"
+#include "llvm/Support/GraphWriter.h"
 
 #if HAVE_LLVM_VER >= 35
 #else
@@ -158,8 +160,8 @@ public:
     unsigned size() const { return nodes.size(); }
     void createGraphVizFile(const char* fileName);
 
-    // for GDB
-    void dump();
+    // for Debug
+    void dumpDOT();
 };
 
 namespace llvm {

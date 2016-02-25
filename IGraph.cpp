@@ -214,3 +214,27 @@ void IGraph::construct(Function *F, GlobalToWideInfo *info) {
 	
     }       
 }
+
+void IGraph::dumpDOT() {
+    std::string Filename = "ig." + this->getName().str() + ".dot";
+#if HAVE_LLVM_VER >= 35
+    std::error_code EC;
+    raw_fd_ostream File(Filename.c_str(), EC, sys::fs::F_Text);
+    
+    if (!EC) {
+	WriteGraph(File, (const IGraph*)this, false, "Habanero");
+    } else {
+	errs() << "Dump IGraph : error: "<< EC.message() << "\n";
+
+    }
+#else
+    std::string ErrorInfo;
+    raw_fd_ostream File(Filename.c_str(), ErrorInfo);
+    
+    if (ErrorInfo.empty()) {
+	WriteGraph(File, (const IGraph*)this, false, "Habanero");
+    } else {
+	errs() << "  error opening file for writing!";
+    }
+#endif    
+}       

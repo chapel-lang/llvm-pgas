@@ -116,7 +116,6 @@
 // For Debugging 
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Support/GraphWriter.h"
 
 #include "llvm/ADT/GraphTraits.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
@@ -240,18 +239,6 @@ namespace {
 		File << *F;
 	    }
 	}
-
-	void dumpDOT(IGraph* G) {
-	    std::string Filename = "ig." + G->getName().str() + ".dot";
-	    std::error_code EC;
-	    raw_fd_ostream File(Filename.c_str(), EC, sys::fs::F_Text);
-
-	    if (EC) {
-		errs() << "Dump IGraph : error: "<< EC.message() << "\n";
-	    } else {
-		WriteGraph(File, (const IGraph*)G, false, "Habanero");
-	    }	    
-	}       
 #else
         void dumpFunction(Function *F, std::string mid) {
 	    std::string Filename = F->getName().str() + "." + mid + ".ll";
@@ -263,21 +250,6 @@ namespace {
 	    else
 		errs() << "  error opening file for writing!";
 	    errs() << "\n";
-	}
-
-	void dumpDOT(IGraph* G) {
-	    std::string Filename = "ig." + G->getName().str() + ".dot";
-	    errs() << "Writing '" << Filename << "'...";
-
-	    std::string ErrorInfo;
-	    raw_fd_ostream File(Filename.c_str(), ErrorInfo);
-
-	    if (ErrorInfo.empty())
-		WriteGraph(File, (const IGraph*)G, false, "Habanero");
-	    else
-		errs() << "  error opening file for writing!";
-	    errs() << "\n";
-
 	}
 #endif
 	// For Debugging purpose
@@ -897,7 +869,7 @@ namespace {
 	    if (debugThisFn[0] && F->getName() == debugThisFn) {
 		VN->dump();
 		// For Graphviz
-		dumpDOT(G);
+		G->dumpDOT();
 		errs () << "\n[Local Array GVN]\n";
 		LocalArraysGVN->dump();
 		errs () << "[Local Array Decl]\n";
