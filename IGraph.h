@@ -28,6 +28,7 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/GraphTraits.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/SmallBitVector.h"
 #include "llvm/IR/Value.h"
 #include "llvm/Support/DOTGraphTraits.h"
 #include "llvm/Support/raw_ostream.h"
@@ -56,7 +57,11 @@ enum NodeKind {
     NODE_NONE
 };
 
+
 class Node {
+public:
+    typedef BitVector IDominatorTreeType;
+    typedef SmallVector<Node*, 32> DominanceFrontierType;   
 private:
     // 
     NodeKind kind;    
@@ -64,12 +69,21 @@ private:
     Instruction* insn;
     unsigned int version;
     int locality;
+    // for Dominant Tree
+    int postOrderNumber;
+
     //
     typedef std::vector<Node*> NodeElementType;
+
     // 
     NodeElementType children;
     NodeElementType parents;
 
+    // For Dominator Tree & Dominance Frontier
+    IDominatorTreeType idom;
+    bool domIsUndefined;
+    DominanceFrontierType dominanceFrontier;
+    
 public:
     
     Node(NodeKind _kind,
@@ -82,6 +96,8 @@ public:
 	insn = _insn;
 	version = _version;
 	locality = _locality;
+	postOrderNumber = -1;
+	domIsUndefined = true;
     };
 
     typedef NodeElementType::iterator iterator;
@@ -92,6 +108,7 @@ public:
     iterator parents_end() { return parents.end(); }
     const_iterator parents_begin() const { return parents.begin(); }
     const_iterator parents_end() const { return parents.end(); }
+
     // children
     iterator children_begin() { return children.begin(); }
     iterator children_end() { return children.end(); }
@@ -119,6 +136,23 @@ public:
     unsigned int getVersion() const { return version; }   
     int getLocality() const { return locality; }
 
+    // For Dominator Tree & Dominance Frontier
+    void setPostOrderNumber(int _postOrderNumber) { postOrderNumber = _postOrderNumber; }
+    int getPostOrderNumber() const { return postOrderNumber; }
+    bool getUndefined() { return domIsUndefined; }
+    void setUndefined(bool flag) { domIsUndefined = flag; } 
+    IDominatorTreeType getDom() { return idom; }
+    void setDom(IDominatorTreeType _idom) { idom = _idom; }
+    void resetDominanceFrontier() { dominanceFrontier.clear(); }
+    void addToDominanceFrontier(Node *b) { dominanceFrontier.push_back(b); }
+	
+    int getNumPreds() { return parents.size(); }
+
+    typedef DominanceFrontierType::iterator df_iterator;
+
+    df_iterator df_begin() { return dominanceFrontier.begin(); }
+    df_iterator df_end() { return dominanceFrontier.end(); }
+	
     // for debug
     void dump() const {
 	printAsOperand(errs(), true);
@@ -154,7 +188,8 @@ public:
 	default:
 		assert(0 && "Inequality Graph Node Type should not be NODE_NONE");
 	}
-	
+
+	o << "\n" << this->getPostOrderNumber();
     }
     
 };
@@ -171,6 +206,17 @@ private:
     
     NodeListType getRootNodes() { return nodes; }
     Value* getOperandIfLocalStmt(Instruction *insn);
+
+    void setPostOrderNumberWithDFSImpl(Node*, int&);
+    void setPostOrderNumberWithDFS();
+
+    /* For Dominator Tree Construction*/
+    void computeDominatorTree();
+    Node* computeIntersect(Node*, Node*);
+
+    /* For Dominance Frontier Construction */
+    void computeDominanceFrontier();
+    
 
     //
     bool debug = true;
@@ -201,6 +247,16 @@ public:
 	return NULL;
     }
 
+    Node* getNodeByPostOrderNumber(const int number) { 
+	for (NodeListType::iterator I = nodes.begin(), E = nodes.end(); I != E; I++) {
+	    Node* tmp = *I;
+	    if (number == tmp->getPostOrderNumber()) {
+		return tmp;
+	    }
+	}
+	return NULL;
+    }
+    
     void addNode(Node* n) { nodes.push_back(n); }
     unsigned size() const { return nodes.size(); }
 
