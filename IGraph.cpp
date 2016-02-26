@@ -247,7 +247,43 @@ void IGraph::construct(Function *F, GlobalToWideInfo *info) {
     // Dominator Frontier Computation
     this->computeDominanceFrontier();
     // phi-insertion
-    
+    SmallVector<Node*, 128> phiAddedNodes; /* set of nodes where phi is added */
+    for (SmallVector<Value*, 128>::iterator I = possiblyRemotePtrs.begin(),
+	     E = possiblyRemotePtrs.end(); I != E; I++) {
+	Value* val = *I;
+	SmallVector<Node*, 128> DEFNodes;
+	for (IGraph::iterator NI = this->begin(),
+		 NE = this->end(); NI != NE; NI++) {
+	    Node *node = *NI;
+	    if (node->getKind() == NODE_DEF && node->getValue() == val) {
+		DEFNodes.push_back(node);
+	    }
+	}
+	while (!DEFNodes.empty()) {	    
+	    Node* DEFNode = DEFNodes[0];
+	    DEFNodes.erase(DEFNodes.begin());
+	    for (Node::df_iterator DI = DEFNode->df_begin(),
+		     DE = DEFNode->df_end(); DI != DE; DI++) {
+		Node *DFofDEF = *DI;		
+		if (find(phiAddedNodes.begin(), phiAddedNodes.end(), DFofDEF) == phiAddedNodes.end()) {
+		    Node *phiNode = new Node(NODE_PHI, NULL, NULL, 0, 0);
+		    this->addNode(phiNode);
+		    for (Node::iterator NI = DFofDEF->parents_begin(),
+			     NE = DFofDEF->parents_end();
+			 NI != NE; NI++) {
+			Node *parents = *NI;
+			parents->eraseFromChild(DFofDEF);
+			parents->addChild(phiNode);
+		    }
+		    phiNode->addChild(DFofDEF);  
+		    phiAddedNodes.push_back(DFofDEF);
+		    if (find(DEFNodes.begin(), DEFNodes.end(), DFofDEF) == DEFNodes.end()) {
+			DEFNodes.push_back(DFofDEF);
+		    }
+		}
+	    }
+	}
+    }
     // renaming	
 
 }
@@ -269,37 +305,6 @@ Node* IGraph::computeIntersect(Node* b1, Node* b2) {
 }
 
 void IGraph::computeDominatorTree() {
-    /* for all nodes, initialize the dominators array */
-#if 0
-    for (IGraph::iterator I = this->begin(), E = this->end(); I != E; I++) {
-	Node *n = *I;
-	DominatorTreeType t(this->size(), true);
-	n->setDom(t);
-    }
-    DominatorTreeType dom = entry->getDom();
-    dom.reset();
-    dom[entry->getPostOrderNumber()] = true;
-    entry->setDom(dom);
-    bool Changed = true;
-    while (Changed) {
-	Changed = false;
-	// reverse post order
-	for (int i = this->size() - 1; i >= 0; i--) {
-	    Node * p = this->getNodeByPostOrderNumber(i);
-	    if (p == this->getEntry()) continue;    
-	    Node::DominatorTreeType newSet(this->size(), true);
-	    for (Node::iterator IPRED = p->parents_begin(), EPRED = p->parents_end(); IPRED != EPRED; IPRED++) {
-		Node *nPred = *IPRED;
-		newSet &= nPred->getDom();
-	    }
-	    newSet[p->getPostOrderNumber()] = true;
-	    if (p->getDom() != newSet) {
-		p->setDom(newSet);
-		Changed = true;
-	    }
-	}
-    }
-#else
     /* initialize the domiantor array */
     for (IGraph::iterator I = this->begin(),
 	     E = this->end(); I != E; I++) {
@@ -331,7 +336,6 @@ void IGraph::computeDominatorTree() {
 		    first_pred = node;
 		    break;
 		}
-		
 	    }
 	    assert(first_pred != NULL);
 	    new_idom[first_pred->getPostOrderNumber()] = true;
@@ -352,18 +356,18 @@ void IGraph::computeDominatorTree() {
 	    }
 	}
     }
-#endif
-    
-    for (IGraph::iterator I = this->begin(), E = this->end(); I != E; I++) {
-	Node *n = *I;
-	errs () << "IDOM(" << n->getPostOrderNumber() << ") : ";
-	Node::IDominatorTreeType b = n->getDom();
-	for (int i = 0; i < b.size(); i++) {
-	    if (b[i]) {
-		errs () << i << ", ";
+    if (debug) {	
+	for (IGraph::iterator I = this->begin(), E = this->end(); I != E; I++) {
+	    Node *n = *I;
+	    errs () << "IDOM(" << n->getPostOrderNumber() << ") : ";
+	    Node::IDominatorTreeType b = n->getDom();
+	    for (int i = 0; i < b.size(); i++) {
+		if (b[i]) {
+		    errs () << i << ", ";
+		}
 	    }
+	    errs () << "\n";
 	}
-	errs () << "\n";
     }
 }
 
@@ -385,16 +389,18 @@ void IGraph::computeDominanceFrontier() {
 		} 
 	    }		 
 	}
-    }
-    for (IGraph::iterator I = this->begin(), E = this->end(); I != E; I++) {
-	Node *b = *I;
-	errs () << "DF(" << b->getPostOrderNumber() << ") : "; 
-	for (Node::df_iterator DI = b->df_begin(),
-		 DE = b->df_end(); DI != DE; DI++) {
-	    Node* df = *DI;
-	    errs () << df->getPostOrderNumber() << ", ";	    
+    }    
+    if (debug) {
+	for (IGraph::iterator I = this->begin(), E = this->end(); I != E; I++) {
+	    Node *b = *I;
+	    errs () << "DF(" << b->getPostOrderNumber() << ") : "; 
+	    for (Node::df_iterator DI = b->df_begin(),
+		     DE = b->df_end(); DI != DE; DI++) {
+		Node* df = *DI;
+		errs () << df->getPostOrderNumber() << ", ";	    
+	    }
+	    errs () << "\n";
 	}
-	errs () << "\n";
     }
 
 }

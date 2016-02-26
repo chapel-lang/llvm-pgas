@@ -123,6 +123,14 @@ public:
 	}
     }
 
+    void eraseFromParent(Node* parent) {
+	iterator I = find(parents_begin(), parents_end(), parent);
+	if ( I != parents_end() ) {
+	    parents.erase(I);
+	    eraseFromChild(this);
+	}
+    }
+
     void addChild(Node *child) { 
 	iterator I = find(children_begin(), children_end(), child);
         if( I == children.end() ){
@@ -130,6 +138,15 @@ public:
 	    child->addParents(this);
 	}
     }
+
+    void eraseFromChild(Node* child) {
+	iterator I = find(children_begin(), children_end(), child);
+	if ( I != children_end() ) {
+	    children.erase(I);
+	    eraseFromParent(this);
+	}
+    }
+
 
     Value* getValue() const { return value; }
     NodeKind getKind() const { return kind; }
@@ -183,6 +200,8 @@ public:
 	    o << "_" << this->getVersion();
 	    break;
 	case NODE_PHI:
+	    o << "phi()";
+	    break;
 	case NODE_PI:
 	    break;
 	default:
