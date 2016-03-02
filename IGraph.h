@@ -48,47 +48,50 @@
 using namespace std;
 using namespace llvm;
 
-enum NodeKind {
-    NODE_ENTRY,
-    NODE_DEF,
-    NODE_USE,
-    NODE_PHI,
-    NODE_PI,
-    NODE_NONE
-};
-
-
 class Node {
 public:
     typedef BitVector IDominatorTreeType;
     typedef SmallVector<Node*, 32> DominanceFrontierType;
     typedef std::vector<Node*> NodeElementType;
-    
+
+    enum NodeKind {
+	NODE_ENTRY,
+	NODE_DEF,
+	NODE_USE,
+	NODE_PHI,
+	NODE_PI,
+	NODE_NONE
+    };
+   
 private:
-    // 
+    // Kind of this node (e.g. DEF/USE/PHI)
     NodeKind kind;    
+    // Correspoing possibly-remote pointer
     Value* value;
+    // Corresponding instruction
     Instruction* insn;
+    // used in Locality-SSA (live-range splitting)
     unsigned int version;
+    // Current convention (0: definitely-local, 100: possibly-remote)
     int locality;
-    // for Dominant Tree
+    // For visiting nodes in post order
     int postOrderNumber;
-
-    //
-
-
-    // 
+    // Immediate dominator of this node
+    IDominatorTreeType idom;
+    // Used for dominator tree calculation
+    bool domIsUndefined;
+    // Dominance frontiers of this node
+    DominanceFrontierType dominanceFrontier;
+    
+    // Children and Parents of this node
     NodeElementType children;
     NodeElementType parents;
-    
-    // For Dominator Tree & Dominance Frontier
-    IDominatorTreeType idom;
-    bool domIsUndefined;
-    DominanceFrontierType dominanceFrontier;
-    NodeElementType phiNodeArgs;
+
+    // Used for showing informtion on this node
+    void printAsOperandInternal(raw_ostream &o, Value* value) const;
 
 public:
-    
+    // Constructor
     Node(NodeKind _kind,
 	 Value* _value,
 	 Instruction* _insn,
@@ -103,26 +106,36 @@ public:
 	domIsUndefined = true;
     };
 
+    // For enumerating parents/children of this node
     typedef NodeElementType::iterator iterator;
     typedef NodeElementType::const_iterator const_iterator;
     
-    // parents
+    // Interface for enumerating parents
     iterator parents_begin() { return parents.begin(); }
     iterator parents_end() { return parents.end(); }
     const_iterator parents_begin() const { return parents.begin(); }
     const_iterator parents_end() const { return parents.end(); }
 
-    // children
+    // Interface for enumerating children
     iterator children_begin() { return children.begin(); }
     iterator children_end() { return children.end(); }
     const_iterator children_begin() const { return children.begin(); }
     const_iterator children_end() const { return children.end(); }
-    
-    void addParents(Node* parent) {
+
+    // Getter for general node information
+    Value* getValue() const { return value; }
+    NodeKind getKind() const { return kind; }
+    unsigned int getVersion() const { return version; }
+    int getLocality() const { return locality; }
+    int getNumPreds() { return parents.size(); }
+
+    // Setter for node information
+    void setVersion(unsigned int _version) { version = _version; }   
+
+    void addParent(Node* parent) {
 	iterator I = find(parents_begin(), parents_end(), parent);
         if( I == parents_end() ){
 	    parents.push_back(parent);
-	    parent->addChild(this);
 	}
     }
 
@@ -137,7 +150,6 @@ public:
 	iterator I = find(children_begin(), children_end(), child);
         if( I == children.end() ){
 	    children.push_back(child);
-	    child->addParents(this);
 	}
     }
 
@@ -148,133 +160,62 @@ public:
 	}
     }
 
-    Value* getValue() const { return value; }
-    NodeKind getKind() const { return kind; }
-    unsigned int getVersion() const { return version; }
-    int getLocality() const { return locality; }
+    /* === Utility functions for Inequality Graph Construction Starts === */
 
-    void setVersion(unsigned int _version) { version = _version; }   
+    // For enumerating Dominance frontiers of this node
+    typedef DominanceFrontierType::iterator df_iterator;
 
-    // For Dominator Tree & Dominance Frontier
+    // Interface for enumerating Dominance frontiers of this node
+    df_iterator df_begin() { return dominanceFrontier.begin(); }
+    df_iterator df_end() { return dominanceFrontier.end(); }    
+
+    // Used for visiting nodes in post order
     void resetPostOrderNumber() { postOrderNumber = -1; };
     void setPostOrderNumber(int _postOrderNumber) { postOrderNumber = _postOrderNumber; }
     int getPostOrderNumber() const { return postOrderNumber; }
+    // Used for calculating dominator tree
     bool getUndefined() { return domIsUndefined; }
     void setUndefined(bool flag) { domIsUndefined = flag; } 
-    IDominatorTreeType getDom() { return idom; }
-    void setDom(IDominatorTreeType _idom) { idom = _idom; }
+    // Setter/Getter for immediate Dominator
+    IDominatorTreeType getIDom() { return idom; }
+    void setIDom(IDominatorTreeType _idom) { idom = _idom; }
+    // Dominance Frontier
     void resetDominanceFrontier() { dominanceFrontier.clear(); }
     void addToDominanceFrontier(Node *b) { dominanceFrontier.push_back(b); }
 	
-    int getNumPreds() { return parents.size(); }
+    /* === Utility functions for Inequality Graph Construction Ends === */
 
-    typedef DominanceFrontierType::iterator df_iterator;
-
-    df_iterator df_begin() { return dominanceFrontier.begin(); }
-    df_iterator df_end() { return dominanceFrontier.end(); }
-	
-    // for debug
+    // Used for showing information on this node (e.g. when dumping in DOT format) 
+    void printAsOperand(raw_ostream&, bool) const;
+    
+    // Used for debug
     void dump() const {
 	printAsOperand(errs(), true);
 	errs () << "\n";
-    }
-
-    void printAsOperand(raw_ostream &o, bool PrettyPrint) const {
-	// print Node Information
-	if (PrettyPrint) {
-	    switch (this->getKind()) {
-	    case NODE_ENTRY:
-		o << "entry";
-		break;
-	    case NODE_DEF:
-#if HAVE_LLVM_VER >= 35
-		value->printAsOperand(o, false);
-#else	    
-		WriteAsOperand(o, value, false);
-#endif
-		o << "_" << this->getVersion() << " = " << this->getLocality();
-		break;
-	    case NODE_USE:
-		o << "... = ";
-#if HAVE_LLVM_VER >= 35
-		value->printAsOperand(o, false);
-#else	    
-		WriteAsOperand(o, value, false);
-#endif	    
-		o << "_" << this->getVersion();
-		break;
-	    case NODE_PHI:
-#if HAVE_LLVM_VER >= 35
-		value->printAsOperand(o, false);
-#else	    
-		WriteAsOperand(o, value, false);
-#endif	    
-		o << "_" << this->getVersion();
-		
-		o << " = phi(";
-		for (const_iterator I = this->parents_begin(),
-			 E = this->parents_end(); I != E; I++) {
-		    Node *n = *I;
-		    n->printAsOperand(o, false);
-		    if (I+1 != E) {
-			o << ", ";
-		    }
-		}
-		o << ")";
-		break;
-	    case NODE_PI:
-		break;
-	    default:
-		assert(0 && "Inequality Graph Node Type should not be NODE_NONE");
-	    }	    
-	    o << "\n" << this->getPostOrderNumber();
-#ifdef DEBUG
-	    o << "\n" << "Parents (";
-	    for (const_iterator I = parents_begin(), E = parents_end(); I != E; I++) {
-		Node *n = *I;
-		o << n->getPostOrderNumber();
-		if (I+1 != E) {
-		    o << ", ";
-		}
-	    }
-	    o << ")";
-	    o << "\n" << "Children (";
-	    for (const_iterator I = children_begin(), E = children_end(); I != E; I++) {
-		Node *n = *I;	       
-		o << n->getPostOrderNumber(); 
-		if (I+1 != E) {
-		    o << ", ";
-		}
-	    }
-	    o << ")";
-#endif
-	} else {
-	    NodeKind kind = this->getKind();
-	    if (kind == NODE_DEF || kind == NODE_USE) {
-#if HAVE_LLVM_VER >= 35
-		value->printAsOperand(o, false);
-#else	    
-		WriteAsOperand(o, value, false);
-#endif
-		o << "_" << this->getVersion();
-	    }
-	}
-
-    }
-    
+    }    
 };
 
 class IGraph {
 private:
-    // the name of IGraph, which is used for DOT graph generation
+    // The name of IGraph, which is used for DOT graph generation
     StringRef name;
 
-    // entry node
+    // Entry node
     Node* entry;
 
-    // List of nodes in IGraph
+    // Nodes of IGraph
     typedef std::vector<Node*> NodeListType;
     NodeListType nodes;
+    
+    /* === Data Structures for Inequality Graph Construction Starts === */
+
+    // An array of possibly remote pointers
+    typedef SmallVector<Value*, 128> PossiblyRemoteArrayType;
+    PossiblyRemoteArrayType possiblyRemotePtrs;
+    PossiblyRemoteArrayType possiblyRemoteArgs;
+
+    // Used for analyzing def/use of locality
+    typedef DenseMap<Instruction*, std::tuple<Node::NodeKind, Value*, Instruction*, int>> InsnToNodeMapType;
 
     // For Renaming
     typedef std::stack<int> StackType;
@@ -282,48 +223,62 @@ private:
     typedef DenseMap<Value*, int> RenamingCounterType;
     RenamingStacksType renamingStacks;
     RenamingCounterType renamingCounters;
-    
-    NodeListType getRootNodes() { return nodes; }
+
+    /* === Data Structures for Inequality Graph Construction Ends === */
+
+    /* === Utility functions for Inequality graph construction Starts === */
+
+    // Add a node to the graph
+    void addNode(Node* n) { nodes.push_back(n); }
+
+    // Language specific 
     Value* getOperandIfLocalStmt(Instruction *insn);
 
+    // For Initial IGraph construction from LLVM Function
+    InsnToNodeMapType analyzeDefUseOfLocality(Function *, GlobalToWideInfo *);
+    void buildGraph(Function*, InsnToNodeMapType&);
+
+    // For constructing Locality-SSA in IGraph
+    void calculateDTandDF();
     void setPostOrderNumberWithDFSImpl(Node*, int&);
     void setPostOrderNumberWithDFS();
-
-    /* For Dominator Tree Construction*/
     void computeDominatorTree();
     Node* computeIntersect(Node*, Node*);
-
-    /* For Dominance Frontier Construction */
-    void computeDominanceFrontier();
-
-    
-    /* For phi node insertion & renaming */
-    void insertPhiNodes();
+    void computeDominanceFrontier();   
+    void performPhiNodeInsertion(bool&);
     void performRenaming();
     void performRenamingImpl(Node *, Node::NodeElementType&);
-    void genName(Value *v);
+    void generateName(Value *v);
 
-    //
+    /* === Utility functions for Inequality graph construction Ends === */
+
+    // verbose
     bool debug = true;
     
 public:
+    // Constructor 
+    IGraph () { name = "IGraph"; }
+    // Constructor with name
     IGraph (StringRef _name) { name = _name; }
-    void construct(Function *F, GlobalToWideInfo *info);
-    
-    Node* getEntry() const { return entry; }
-    StringRef getName() const { return name; }
 
+    // For enumerating nodes in the graph
     typedef NodeListType::iterator iterator;
     typedef NodeListType::const_iterator const_iterator;
 
-    // Iterator for enumerating nodes of IGraph.
+    // Interface for enumerating nodes of IGraph.
     iterator begin() { return nodes.begin(); }
     const_iterator begin() const { return nodes.begin(); }
     iterator end() { return nodes.end(); }
     const_iterator end() const { return nodes.end(); }
 
+    // Getter
+    Node* getEntry() const { return entry; }
+    StringRef getName() const { return name; }
+    unsigned size() const { return nodes.size(); }
+
     Node* getNodeByValue(const Value* v) { 
-	for (NodeListType::iterator I = nodes.begin(), E = nodes.end(); I != E; I++) {
+	for (NodeListType::iterator I = nodes.begin(),
+		 E = nodes.end(); I != E; I++) {
 	    Node* tmp = *I;
 	    if (v == tmp->getValue()) {
 		return tmp;
@@ -333,7 +288,8 @@ public:
     }
 
     Node* getNodeByPostOrderNumber(const int number) { 
-	for (NodeListType::iterator I = nodes.begin(), E = nodes.end(); I != E; I++) {
+	for (NodeListType::iterator I = nodes.begin(),
+		 E = nodes.end(); I != E; I++) {
 	    Node* tmp = *I;
 	    if (number == tmp->getPostOrderNumber()) {
 		return tmp;
@@ -341,35 +297,18 @@ public:
 	}
 	return NULL;
     }
-    
-    void addNode(Node* n) { nodes.push_back(n); }
-    unsigned size() const { return nodes.size(); }
 
-    // for Debug
+    // Construct a inequality graph from an LLVM function
+    void construct(Function *F, GlobalToWideInfo *info);    
+    
+    // Used for dumping IGraph in DOT format
     void dumpDOT();
 };
 
+/* The followings are used for DOT Graph generation by llvm::DOTGraphTraits */
 namespace llvm {
     // for Graph Traits
-    // Graph Traits requires you to provide the following
-    // (for more details see "llvm/ADT/GraphTraits.h") :
-
-    // typedef NodeType          - Type of Node in the graph
-    // typedef ChildIteratorType - Type used to iterate over children in graph    
-    // static NodeType *getEntryNode(const GraphType &)
-    //    Return the entry node of the graph    
-    // static ChildIteratorType child_begin(NodeType *)
-    // static ChildIteratorType child_end  (NodeType *)
-    //    Return iterators that point to the beginning and ending of the child
-    //    node list for the specified node.
-    //        
-    // typedef  ...iterator nodes_iterator;
-    // static nodes_iterator nodes_begin(GraphType *G)
-    // static nodes_iterator nodes_end  (GraphType *G)
-    //    nodes_iterator/begin/end - Allow iteration over all nodes in the graph    
-    // static unsigned       size       (GraphType *G)
-    //    Return total number of nodes in the graph
-    /* The followings are used for DOT Graph generation by DOTGraphTraits */
+    // (for more details see "llvm/ADT/GraphTraits.h")
 
     // template specialization for <const Node*>
     template<> struct GraphTraits<const Node*> {
@@ -433,6 +372,5 @@ namespace llvm {
 	}
     };       
 }
-
 
 #endif // _IGRAPH_H_
