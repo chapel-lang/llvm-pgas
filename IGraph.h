@@ -61,7 +61,9 @@ enum NodeKind {
 class Node {
 public:
     typedef BitVector IDominatorTreeType;
-    typedef SmallVector<Node*, 32> DominanceFrontierType;   
+    typedef SmallVector<Node*, 32> DominanceFrontierType;
+    typedef std::vector<Node*> NodeElementType;
+    
 private:
     // 
     NodeKind kind;    
@@ -73,17 +75,18 @@ private:
     int postOrderNumber;
 
     //
-    typedef std::vector<Node*> NodeElementType;
+
 
     // 
     NodeElementType children;
     NodeElementType parents;
-
+    
     // For Dominator Tree & Dominance Frontier
     IDominatorTreeType idom;
     bool domIsUndefined;
     DominanceFrontierType dominanceFrontier;
-    
+    NodeElementType phiNodeArgs;
+
 public:
     
     Node(NodeKind _kind,
@@ -127,7 +130,6 @@ public:
 	iterator I = find(parents_begin(), parents_end(), parent);
 	if ( I != parents_end() ) {
 	    parents.erase(I);
-	    eraseFromChild(this);
 	}
     }
 
@@ -143,17 +145,18 @@ public:
 	iterator I = find(children_begin(), children_end(), child);
 	if ( I != children_end() ) {
 	    children.erase(I);
-	    eraseFromParent(this);
 	}
     }
 
-
     Value* getValue() const { return value; }
     NodeKind getKind() const { return kind; }
-    unsigned int getVersion() const { return version; }   
+    unsigned int getVersion() const { return version; }
     int getLocality() const { return locality; }
 
+    void setVersion(unsigned int _version) { version = _version; }   
+
     // For Dominator Tree & Dominance Frontier
+    void resetPostOrderNumber() { postOrderNumber = -1; };
     void setPostOrderNumber(int _postOrderNumber) { postOrderNumber = _postOrderNumber; }
     int getPostOrderNumber() const { return postOrderNumber; }
     bool getUndefined() { return domIsUndefined; }
@@ -176,39 +179,87 @@ public:
 	errs () << "\n";
     }
 
-    void printAsOperand(raw_ostream &o, bool) const {
+    void printAsOperand(raw_ostream &o, bool PrettyPrint) const {
 	// print Node Information
-	switch (this->getKind()) {
-	case NODE_ENTRY:
-	    o << "entry";
-	    break;
-	case NODE_DEF:
+	if (PrettyPrint) {
+	    switch (this->getKind()) {
+	    case NODE_ENTRY:
+		o << "entry";
+		break;
+	    case NODE_DEF:
 #if HAVE_LLVM_VER >= 35
-	    value->printAsOperand(o, false);
+		value->printAsOperand(o, false);
 #else	    
-	    WriteAsOperand(o, value, false);
+		WriteAsOperand(o, value, false);
 #endif
-	    o << "_" << this->getVersion() << " = " << this->getLocality();
-	    break;
-	case NODE_USE:
-	    o << "... = ";
+		o << "_" << this->getVersion() << " = " << this->getLocality();
+		break;
+	    case NODE_USE:
+		o << "... = ";
 #if HAVE_LLVM_VER >= 35
-	    value->printAsOperand(o, false);
+		value->printAsOperand(o, false);
 #else	    
-	    WriteAsOperand(o, value, false);
+		WriteAsOperand(o, value, false);
 #endif	    
-	    o << "_" << this->getVersion();
-	    break;
-	case NODE_PHI:
-	    o << "phi()";
-	    break;
-	case NODE_PI:
-	    break;
-	default:
+		o << "_" << this->getVersion();
+		break;
+	    case NODE_PHI:
+#if HAVE_LLVM_VER >= 35
+		value->printAsOperand(o, false);
+#else	    
+		WriteAsOperand(o, value, false);
+#endif	    
+		o << "_" << this->getVersion();
+		
+		o << " = phi(";
+		for (const_iterator I = this->parents_begin(),
+			 E = this->parents_end(); I != E; I++) {
+		    Node *n = *I;
+		    n->printAsOperand(o, false);
+		    if (I+1 != E) {
+			o << ", ";
+		    }
+		}
+		o << ")";
+		break;
+	    case NODE_PI:
+		break;
+	    default:
 		assert(0 && "Inequality Graph Node Type should not be NODE_NONE");
+	    }	    
+	    o << "\n" << this->getPostOrderNumber();
+#ifdef DEBUG
+	    o << "\n" << "Parents (";
+	    for (const_iterator I = parents_begin(), E = parents_end(); I != E; I++) {
+		Node *n = *I;
+		o << n->getPostOrderNumber();
+		if (I+1 != E) {
+		    o << ", ";
+		}
+	    }
+	    o << ")";
+	    o << "\n" << "Children (";
+	    for (const_iterator I = children_begin(), E = children_end(); I != E; I++) {
+		Node *n = *I;	       
+		o << n->getPostOrderNumber(); 
+		if (I+1 != E) {
+		    o << ", ";
+		}
+	    }
+	    o << ")";
+#endif
+	} else {
+	    NodeKind kind = this->getKind();
+	    if (kind == NODE_DEF || kind == NODE_USE) {
+#if HAVE_LLVM_VER >= 35
+		value->printAsOperand(o, false);
+#else	    
+		WriteAsOperand(o, value, false);
+#endif
+		o << "_" << this->getVersion();
+	    }
 	}
 
-	o << "\n" << this->getPostOrderNumber();
     }
     
 };
@@ -217,11 +268,20 @@ class IGraph {
 private:
     // the name of IGraph, which is used for DOT graph generation
     StringRef name;
+
     // entry node
     Node* entry;
+
     // List of nodes in IGraph
     typedef std::vector<Node*> NodeListType;
     NodeListType nodes;
+
+    // For Renaming
+    typedef std::stack<int> StackType;
+    typedef DenseMap<Value*, StackType> RenamingStacksType;
+    typedef DenseMap<Value*, int> RenamingCounterType;
+    RenamingStacksType renamingStacks;
+    RenamingCounterType renamingCounters;
     
     NodeListType getRootNodes() { return nodes; }
     Value* getOperandIfLocalStmt(Instruction *insn);
@@ -235,7 +295,13 @@ private:
 
     /* For Dominance Frontier Construction */
     void computeDominanceFrontier();
+
     
+    /* For phi node insertion & renaming */
+    void insertPhiNodes();
+    void performRenaming();
+    void performRenamingImpl(Node *, Node::NodeElementType&);
+    void genName(Value *v);
 
     //
     bool debug = true;
