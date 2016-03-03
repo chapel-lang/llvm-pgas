@@ -113,7 +113,7 @@ void Node::printAsOperand(raw_ostream &o, bool PrettyPrint) const {
 
 }    
 
-Value* IGraph::getOperandIfLocalStmt(Instruction *insn) {
+std::pair<bool, Value*> IGraph::isChapelLocalStmt(Instruction *insn) {    
     CallInst *call = dyn_cast<CallInst>(insn);
     if (call) {
 	Function* f = call->getCalledFunction();
@@ -123,19 +123,21 @@ Value* IGraph::getOperandIfLocalStmt(Instruction *insn) {
 		for (User *U : call->getArgOperand(0)->users()) {
 		    Value *UI = U;
 		    if (isa<LoadInst>(*UI) || isa<StoreInst>(*UI)) {
-			return call->getArgOperand(0);
+			return std::make_pair(true, call->getArgOperand(0));
 		    }
 		}
 	    }
 	}
     }
-    return NULL;
+    return std::make_pair(false, (Value*)NULL);
 }
 
 IGraph::InsnToNodeMapType IGraph::analyzeDefUseOfLocality(Function *F, GlobalToWideInfo *info) {
     /* 1. collect addrspace 100 pointers that is used in the next step. */
     /*    1. construct a set of addrspace 100 pointers. */
     /*    2. construct a list of blocks that def/use the pointer. */
+    /* This part is language-specific */
+
     // analyze arguments
     if (debug) {
 	errs () << "\t analyzing Def/Use of Locality\n";
@@ -178,15 +180,43 @@ IGraph::InsnToNodeMapType IGraph::analyzeDefUseOfLocality(Function *F, GlobalToW
 	    }
 	    break;
 	}
+	case Instruction::Store: {
+	    StoreInst *store = cast<StoreInst>(insn);
+	    if(store->getPointerAddressSpace() == info->globalSpace) {
+		needToWork = true;
+		kind = Node::NODE_USE;
+		ptrOp = store->getPointerOperand();
+		addrspace = 100;
+	    }
+	    break;
+	}	    
 	case Instruction::Call: {
-	    ptrOp = getOperandIfLocalStmt(insn);
-	    if (ptrOp) {
+	    auto local = isChapelLocalStmt(insn);
+	    bool isLocal = local.first;	    
+	    if (isLocal) {
 		needToWork = true;
 		kind = Node::NODE_DEF;
+		ptrOp = local.second;
 		addrspace = 0;
+	    } else {
+		// this function may have side effect
+		needToWork = true;
+		kind = Node::NODE_DEF;
+		ptrOp = NULL;
+		addrspace = 100;
 	    }
+	    break;
 	}
-	// TODO: store/getelementptr insn	
+	case Instruction::GetElementPtr: {
+	    GetElementPtrInst *gep = cast<GetElementPtrInst>(insn);
+	    if (gep->getAddressSpace() == info->globalSpace) {
+		needToWork = true;
+		kind = Node::NODE_USE;
+		ptrOp = gep->getPointerOperand();
+		addrspace = 100;		
+	    }
+	    break;
+	}
 	}
 	if (needToWork) {
 	    // collect possibly remote pointers

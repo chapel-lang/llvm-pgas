@@ -232,7 +232,7 @@ private:
     void addNode(Node* n) { nodes.push_back(n); }
 
     // Language specific 
-    Value* getOperandIfLocalStmt(Instruction *insn);
+    std::pair<bool, Value*> isChapelLocalStmt(Instruction *insn);
 
     // For Initial IGraph construction from LLVM Function
     InsnToNodeMapType analyzeDefUseOfLocality(Function *, GlobalToWideInfo *);
