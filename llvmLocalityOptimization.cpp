@@ -289,7 +289,7 @@ namespace {
 	    return vn;
 	}
 
-	bool isDefinitelyLocalAccordingToIG(Value* op, IGraph *G, std::vector<Value*> &NonLocals) {
+	bool isDefinitelyLocalAccordingToIG(Value* op, IGraph *G) {
 	    if (fLLVMDisableIG) {
 		return false;
 	    }
@@ -515,7 +515,7 @@ namespace {
 	    return needsWork;
 	}
 
-	void processInstruction(Instruction* targetInsn, SmallVector<Instruction*, 16> &deletedInsn, ValueToValueMapTy &VM, ValueTable *VN, Module &M, IGraph *G, LocalArrayInfo *LocalArraysGVN, LocalArrayInfo *LocalArraysDecl, std::vector<Value*> &NonLocals) {
+	void processInstruction(Instruction* targetInsn, SmallVector<Instruction*, 16> &deletedInsn, ValueToValueMapTy &VM, ValueTable *VN, Module &M, IGraph *G, LocalArrayInfo *LocalArraysGVN, LocalArrayInfo *LocalArraysDecl) {
 	    if(debugPassInsn) {
 		errs() << "@" << *targetInsn << "\n";
 	    }
@@ -577,7 +577,7 @@ namespace {
 		    bool needToTransform = false;
 		    // For array access
 		    // Check if the pointer is definitely local (according to inequality graph)
-		    needToTransform |= isDefinitelyLocalAccordingToIG(oldOp, G, NonLocals);
+		    needToTransform |= isDefinitelyLocalAccordingToIG(oldOp, G);
 		    // Check if the pointer derives from locale-local array pointer (according to GVN)
 		    needToTransform |= isDefinitelyLocalAccordingToList(oldGEP, VM, G, LocalArraysGVN, true);
 		    // Check if the pointer derives from locale-local array pointer (according to locale-local array)
@@ -625,7 +625,7 @@ namespace {
 		    Instruction* newInst = NULL;
 		    // Old Operand addrspace(100)*
 		    oldOp = oldLoad->getPointerOperand();
-		    if (isDefinitelyLocalAccordingToIG(oldOp, G, NonLocals)) {
+		    if (isDefinitelyLocalAccordingToIG(oldOp, G)) {
 			newOp = findNewOpOrInsertGF(oldOp, VM, M, oldLoad);
 			newInst = new LoadInst(newOp, 
 					       "", 
@@ -658,7 +658,7 @@ namespace {
 		    Instruction* newInst = NULL;
 		    // Old Operand addrspace(100)*			
 		    oldOp = oldStore->getPointerOperand();
-		    if (isDefinitelyLocalAccordingToIG(oldOp, G, NonLocals)) {
+		    if (isDefinitelyLocalAccordingToIG(oldOp, G)) {
 			newOp = findNewOpOrInsertGF(oldOp, VM, M, oldStore);
 			newInst = new StoreInst(oldStore->getValueOperand(), 
 						newOp, 
@@ -761,7 +761,7 @@ namespace {
 		    if (srcSpace == info->globalSpace) {
 			ValueToValueMapTy::iterator I = VM.find(oldSrc);
 			bool renamed = I != VM.end() && I->second;
-			if (isDefinitelyLocalAccordingToIG(oldSrc, G, NonLocals) || renamed) {
+			if (isDefinitelyLocalAccordingToIG(oldSrc, G) || renamed) {
 			    newSrc = findNewOpOrInsertGF(oldSrc, VM, M, oldCall);
 			    needToTransform = true;
 			}
@@ -771,7 +771,7 @@ namespace {
 		    if (dstSpace == info->globalSpace) {
 			ValueToValueMapTy::iterator I = VM.find(oldDst);
 			bool renamed = I != VM.end() && I->second;
-			if (isDefinitelyLocalAccordingToIG(oldDst, G, NonLocals) || renamed) {
+			if (isDefinitelyLocalAccordingToIG(oldDst, G) || renamed) {
 			    newDst = findNewOpOrInsertGF(oldDst, VM, M, oldCall);
 			    needToTransform = true;
 			}
@@ -851,7 +851,6 @@ namespace {
 	    // Allocate 
 	    LocalArrayInfo *LocalArraysGVN = new LocalArrayInfo();
 	    LocalArrayInfo *LocalArraysDecl = new LocalArrayInfo();
-	    static std::vector<Value*> NonLocals;
 	    
 	    // Create IGraph
 	    // Inspect all instructions and construt IGraph. Each node of IGraph contains a densemap that map that is one-to-one mapping of each operand into a specific address space (either 100 or 0).
@@ -864,8 +863,8 @@ namespace {
 	    ValueTable *VN = createValueTable(F);
 
 	    // Input  : VN, G
-	    // Output : LocalArraysGVN, LocalArrayDecl, NonLocals
-	    salvageChapelArrayAccess(F, VN, G, LocalArraysGVN, LocalArraysDecl, NonLocals);
+	    // Output : LocalArraysGVN, LocalArrayDecl
+	    salvageChapelArrayAccess(F, VN, G, LocalArraysGVN, LocalArraysDecl);
 
 	    // Dump analysis results
 	    if (debugThisFn[0] && F->getName() == debugThisFn) {
@@ -876,14 +875,7 @@ namespace {
 		LocalArraysGVN->dump();
 		errs () << "[Local Array Decl]\n";
 		LocalArraysDecl->dump();
-		
-		// dump nonlocals	    
-		errs () << "[Non Locals]\n";
-		for (vector<Value*>::iterator I = NonLocals.begin(), E = NonLocals.end(); I != E; I++) {
-		    Value *tmp = *I;
-		    tmp->dump();
-		}
-	    }
+           }
 	    
 	    // Process each instruction
 	    // try to convert load/store/getelementptr with addrspace(100) to addrspace(0) with using IGraph
@@ -891,7 +883,7 @@ namespace {
 	    ValueToValueMapTy ValueMap;
 	    for (inst_iterator II = inst_begin(F), IE = inst_end(F); II != IE; ++II) {
 		Instruction *insn = &*II;
-		processInstruction(insn, deletedInsn, ValueMap, VN, M, G, LocalArraysGVN, LocalArraysDecl, NonLocals);
+		processInstruction(insn, deletedInsn, ValueMap, VN, M, G, LocalArraysGVN, LocalArraysDecl);
 	    }
 	    for (unsigned int i = 0; i < deletedInsn.size(); i++) {
 		Instruction *insn = deletedInsn[i];
@@ -904,7 +896,6 @@ namespace {
 	    // TODO delete
 	    ValueMap.clear();
 	    deletedInsn.clear();
-	    NonLocals.clear();
 
 	    // For Debug
 	    if (debugThisFn[0] && F->getName() == debugThisFn) {
@@ -1038,7 +1029,7 @@ namespace {
 	}
   
 	
-	void salvageChapelArrayAccess(Function *F, ValueTable *VN, IGraph *G, LocalArrayInfo *LocalArraysGVN, LocalArrayInfo *LocalArraysDecl, std::vector<Value*> &NonLocals) {
+	void salvageChapelArrayAccess(Function *F, ValueTable *VN, IGraph *G, LocalArrayInfo *LocalArraysGVN, LocalArrayInfo *LocalArraysDecl) {
 	    for (inst_iterator IS = inst_begin(F), IE = inst_end(F); IS != IE; IS++) {
 		Instruction *targetInsn = &*IS;
 		switch (targetInsn->getOpcode()) {
@@ -1052,7 +1043,7 @@ namespace {
 		case Instruction::Call:
 		{
 		    // search array construction
-		    analyzeCallInsn(targetInsn, VN, G, LocalArraysDecl, NonLocals);
+		    analyzeCallInsn(targetInsn, VN, LocalArraysDecl);
 		    break;
 		}
 		default:
@@ -1137,28 +1128,8 @@ namespace {
 	    }
 	}
 
-	void markNonLocalsRecursively(Value *v, std::vector<Value*> &visited, std::vector<Value*> &NonLocals) {
-	    bool notVisited = find(visited.begin(), visited.end(), v) == visited.end();
-	    if (isa<Instruction>(v) && notVisited) {
-		visited.push_back(v);
-		Instruction *insn = cast<Instruction>(v);
-		for (unsigned int i = 0; i < insn->getNumOperands(); i++) {
-		    Value *op = insn->getOperand(i);
-		    if (isa<CallInst>(op)) {
-			CallInst *callInsn2 = cast<CallInst>(op);
-			Function *calledFunc2 = callInsn2->getCalledFunction();
-			if (calledFunc2 && calledFunc2->getName().startswith(".gf.addr")) {
-			    Value *tmp = callInsn2->getArgOperand(0);
-			    NonLocals.push_back(tmp);
-			} 
-		    }
-		    markNonLocalsRecursively(op, visited, NonLocals);
-		}
-	    }
-	}
-
 	// check if construct_DefaultRectangularArr is in this function
-	void analyzeCallInsn(Instruction *I, ValueTable *VN, IGraph *G, LocalArrayInfo *LocalArrays, std::vector<Value*> &NonLocals) {
+	void analyzeCallInsn(Instruction *I, ValueTable *VN, LocalArrayInfo *LocalArrays) {
 	    if (isa<CallInst>(I)) {
 		CallInst *callInsn1 = cast<CallInst>(I);
 		Function *calledFunc1 = callInsn1->getCalledFunction();
@@ -1175,12 +1146,8 @@ namespace {
 			if (calledFunc2 && calledFunc2->getName().startswith("_construct_DefaultRectangularArr")) {
 			    LocalArrayEntry *li = new LocalArrayEntry(I, true);
 			    LocalArrays->add(li);
-			} else if (calledFunc2 && calledFunc2->getName().startswith(".gf.addr")) {
-			    NonLocals.push_back(v);
 			} 
 		    }
-		    std::vector<Value*> visited;
-		    markNonLocalsRecursively(v, visited, NonLocals);
 		} else if (funcName.startswith("chpl__convertRuntimeTypeToValue")) { //
 		    Value* v = callInsn1->getArgOperand(1);
 		    for (User *U : v->users()) {
@@ -1324,26 +1291,6 @@ namespace {
 		return false;
 	    }
 	}
-
-	bool exemptionTest(Value *op, std::vector<Value*> &NonLocals) {
-	    bool ret = false;
-	    // Case 1 : op = call @gf.make(%x, %y)
-	    //          = @gf.addr(op) <= assuming this stmt just unpacks local addr
-	    if (isa<CallInst>(op)) {		
-		CallInst *call = cast<CallInst>(op);
-		Function *F = call->getCalledFunction();
-		if (F && F->getName().startswith(".gf.make")) {
-		    ret = true;
-		}
-	    }
-	    // Case 2 : = @gf.make(%x, %y) 
-	    vector<Value*>::iterator I = find(NonLocals.begin(), NonLocals.end(), op);
-	    if (I != NonLocals.end()) {
-		ret = true;
-	    }
-	    return ret;
-	}
-
     };
 }
 
