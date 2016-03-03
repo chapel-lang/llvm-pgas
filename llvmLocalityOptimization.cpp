@@ -837,7 +837,9 @@ namespace {
 	    // Does nothing for special functions since they have no body.
 	    if( F->begin() == F->end() ) return;
 
-	    // TODO : invoke mem2reg pass to introduce SSA phi node	    
+	    legacy::FunctionPassManager* FPM_pre = new legacy::FunctionPassManager(&M);
+	    FPM_pre->add(llvm::createPromoteMemoryToRegisterPass());
+	    FPM_pre->run(*F);
 	    
 	    // For Debug
 	    if (debugThisFn[0] && F->getName() == debugThisFn) {
@@ -910,9 +912,9 @@ namespace {
 		dumpFunction(F, "after");
 	    }	
 	    
-            // TODO : invoke reg2mem pass 
-
-
+	    legacy::FunctionPassManager *FPM_post = new legacy::FunctionPassManager(&M);
+	    FPM_post->add(llvm::createDemoteRegisterToMemoryPass());
+	    FPM_post->run(*F);
 	}
 	
 	/*
