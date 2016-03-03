@@ -362,12 +362,13 @@ namespace {
 			// original GEP is supposed to be array access (GEP %shifteddata, %offset)
 
 			// search array descriptor 
-			LocalArrayEntry *li1 = LocalArrays->getEntryByValue(gepInst);
+			LocalArrayEntry *li1 = LocalArrays->getEntryByValue(gepInst->getPointerOperand());
 			if (li1) {
 			    possiblyLocal = true;
 			    local = li1;
+			    errs () << "HOGE2\n";
 			}
-			
+			errs () << "HOGE\n";
 			// search key assuming array descriptor has already been renamed.
 			const GetElementPtrInst *keyGep = NULL;
 			for (ValueToValueMapTy::iterator I = VM.begin(), E = VM.end(); I != E; I++) {
@@ -395,7 +396,8 @@ namespace {
 		    definitelyLocal = true;
 		} else {
 		    // Check if this offset is local
-		    offset = analyzeArrayAccessOffsets(oldGEP, G);
+		    offset = analyzeArrayAccessOffsets(oldGEP);
+		    errs () << "Offset Fire: " << offset << "\n";
 		    if (!local || local->isLocalOffset(offset)) {
 			definitelyLocal = true;
 		    } else {
@@ -857,17 +859,17 @@ namespace {
 	    // If an instruction is enclosed by a local statement, set the locality level of each operand to 0.
 	    // Currently, we are assuming that gf.addr function calls correspond to Chapel's local statements, but this is not always true because gf.addr is also used to extract a local pointer from a wide pointer. We work on this later pass using NonLocals)       
 	    IGraph *G = new IGraph(F->getName());
-	    G->construct(F, info);
+//	    G->construct(F, info);
 	    
 	    // Perform a reduced version of GVN 
 	    ValueTable *VN = createValueTable(F);
 
 	    // Input  : VN, G
 	    // Output : LocalArraysGVN, LocalArrayDecl
-	    salvageChapelArrayAccess(F, VN, G, LocalArraysGVN, LocalArraysDecl);
+	    salvageChapelArrayAccess(F, VN, LocalArraysGVN, LocalArraysDecl);
 
 	    // Dump analysis results
-	    if (debugThisFn[0] && F->getName() == debugThisFn) {
+//	    if (debugThisFn[0] && F->getName() == debugThisFn) {
 		VN->dump();
 		// For Graphviz
 		G->dumpDOT();
@@ -875,7 +877,7 @@ namespace {
 		LocalArraysGVN->dump();
 		errs () << "[Local Array Decl]\n";
 		LocalArraysDecl->dump();
-           }
+//           }
 	    
 	    // Process each instruction
 	    // try to convert load/store/getelementptr with addrspace(100) to addrspace(0) with using IGraph
@@ -1029,7 +1031,7 @@ namespace {
 	}
   
 	
-	void salvageChapelArrayAccess(Function *F, ValueTable *VN, IGraph *G, LocalArrayInfo *LocalArraysGVN, LocalArrayInfo *LocalArraysDecl) {
+	void salvageChapelArrayAccess(Function *F, ValueTable *VN, LocalArrayInfo *LocalArraysGVN, LocalArrayInfo *LocalArraysDecl) {
 	    for (inst_iterator IS = inst_begin(F), IE = inst_end(F); IS != IE; IS++) {
 		Instruction *targetInsn = &*IS;
 		switch (targetInsn->getOpcode()) {
@@ -1037,7 +1039,7 @@ namespace {
 		case Instruction::Store:
 		{
 		    // search array access enclosed by local statement
-		    analyzeLoadStoreInsn(targetInsn, F, VN, G, LocalArraysGVN);
+		    analyzeLoadStoreInsn(targetInsn, F, VN, LocalArraysGVN);
 		    break;
 		}
 		case Instruction::Call:
@@ -1052,7 +1054,7 @@ namespace {
 	    }
 	}
 
-	int analyzeArrayAccessOffsets(Instruction *getOffsetGEP, IGraph *G) {
+	int analyzeArrayAccessOffsets(Instruction *getOffsetGEP) {
 	    int ret = -1;
 	    if (getOffsetGEP) {
 		errs () << "Offset : \n";
@@ -1088,30 +1090,35 @@ namespace {
 	    return ret;
 	}	    
 	
-	void analyzeLoadStoreInsn(Instruction *I, Function *F, ValueTable *VN, IGraph *G, LocalArrayInfo *LocalArrays) {
-	    if (isArrayAccessMemOp(I, G, info->globalSpace)) {
+	void analyzeLoadStoreInsn(Instruction *I, Function *F, ValueTable *VN, LocalArrayInfo *LocalArrays) {
+	    if (isArrayAccessLoadOrStore(I, info->globalSpace)) {
                 // for each store/load instruction that involves addrspace 100 and is supposed to be array access.
 		if (debugPassInsn) {
 		    errs () << *I << " is supposed to be array access\n";
 		}
-		GetElementPtrInst *gep1 = findGEP08FromMemOp(I, G);
+		GetElementPtrInst *gep1 = findGEP08FromMemOp(I);
 		if (gep1 == NULL) return;
 		for (inst_iterator IS2 = inst_begin(F), IE2 = inst_end(F); IS2 != IE2; IS2++) {
 		    Instruction *I2 = &*IS2;
 		    // search load/store instruction that is supposed to be local array access.
-		    if (I != I2 && isArrayAccessMemOp(I2, G, 0)) {
-			GetElementPtrInst *gep2 = findGEP08FromMemOp(I2, G);
+		    if (I != I2 && isArrayAccessLoadOrStore(I2, 0)) {
+			// I  is load/store addrspace(100) ptr and supposed to be array access at this point
+			// I2 is load/store addrspace(0)   ptr and supposed to be array access at this point
+			GetElementPtrInst *gep2 = findGEP08FromMemOp(I2);
 			if (gep2 == NULL) continue;
 			if (VN->sameExpressions(gep1, gep2)) {
 			    errs () << "[GVN worked!]\n";
-			    errs () << "\t Array Pointer :\n";
-			    errs () << "\t addrspace(100) : " << *gep1 << "\n";
-			    errs () << "\t addrspace(0)   : " << *gep2 << "\n";			    
+			    errs () << "\t Local Access :\n";
+			    errs () << "\t\t Load/Store w/ addrspace(0)   : " << *I2 << "\n";			    
+			    errs () << "\t\t Array Ptr  w/ addrspace(0)   : " << *gep2 << "\n";
+			    errs () << "\t Possibly Remote Access :\n";
+			    errs () << "\t\t Load/Store w/ addrspace(100) : " << *I << "\n";			    
+			    errs () << "\t\t Array Ptr  w/ addrspace(100) : " << *gep1 << "\n";			    
 			    // mark  
 			    Value *localArray = gep1->getPointerOperand();
 			    LocalArrayEntry *li = LocalArrays->getEntryByValue(localArray);
-			    // Analyze Offset			    
-			    int offset = analyzeArrayAccessOffsets(dyn_cast<Instruction>(I2->getOperand(1)), G);
+			    // Analyze Offset
+			    int offset = analyzeArrayAccessOffsets(dyn_cast<Instruction>(I2->getOperand(1)));
 			    if (offset != -1) {
 				//
 				if (!li) {
@@ -1189,43 +1196,44 @@ namespace {
 	    }    
 	}
 
-    	void searchGEP08Inst(vector<GetElementPtrInst*> &list, vector<Node*> &visited, Node *node) {
-	    vector<Node*>::iterator I = find(visited.begin(), visited.end(), node);
-	    if (I == visited.end()) {
-		visited.push_back(node);
+    	void searchGEP08Inst(vector<GetElementPtrInst*> &list, vector<Instruction*> &visited, Instruction* I) {
+	    // see if this Instruction is already visited
+	    if (find(visited.begin(), visited.end(), I)  != visited.end()) {
+		return;
+	    }		
+	    visited.push_back(I);
+	    if (debugPassInsn) {
+		errs () << "Parent Insn : " << *I <<"\n";
+	    }
+	    // Check if this intruction is GEP
+	    GetElementPtrInst *gepInst = dyn_cast<GetElementPtrInst>(I);	    
+	    if (gepInst && gepInst->getNumIndices() == 2) {
 		if (debugPassInsn) {
-		    errs () << "Parent Insn : " << *node->getValue() <<"\n";
+		    errs () << "Candidate GEP : " << *gepInst << "\n";
 		}
-		for (Node::iterator I = node->parents_begin(), E = node->parents_end(); I != E; I++) {
-		    Node *tmp = *I;
-		    Value *v = tmp->getValue();
-		    if (debugPassInsn) {
-			errs () << "Parent Insn : " << *v <<"\n";
+		Constant *op1 = dyn_cast<Constant>(gepInst->getOperand(1));
+		Constant *op2 = dyn_cast<Constant>(gepInst->getOperand(2));
+		if (op1 != NULL && op2 != NULL
+		    && op1->getUniqueInteger() == 0 && op2->getUniqueInteger() == 8) {
+		    // add a candidate GEP to list
+		    if (find(list.begin(),
+			     list.end(),
+			     gepInst) == list.end()) {
+			list.push_back(gepInst);
 		    }
-		    GetElementPtrInst *gepInst = dyn_cast<GetElementPtrInst>(v);
-		    if (gepInst && gepInst->getNumIndices() == 2) {
-			if (debugPassInsn) {
-			    errs () << "Candidate GEP : " << *gepInst << "\n";
-			}
-			Constant *op1 = dyn_cast<Constant>(gepInst->getOperand(1));
-			Constant *op2 = dyn_cast<Constant>(gepInst->getOperand(2));
-			if (op1 != NULL && op2 != NULL
-			    && op1->getUniqueInteger() == 0 && op2->getUniqueInteger() == 8) {
-			    vector<GetElementPtrInst*>::iterator I2 = find(list.begin(), list.end(), gepInst);
-			    if (I2 == list.end()) {
-				list.push_back(gepInst);
-			    }
-			} else {
-			    searchGEP08Inst(list, visited, tmp);
-			}
-		    } else {
-			searchGEP08Inst(list, visited, tmp);
+		}
+	    } else {
+		for (unsigned int i=0; i < I->getNumOperands(); i++) {
+		    Value *op = I->getOperand(i);
+		    Instruction *insn = dyn_cast<Instruction>(op);
+		    if (insn) {
+			searchGEP08Inst(list, visited, insn);
 		    }
 		}
 	    }
 	}
 
-	GetElementPtrInst* findGEP08FromMemOp(Instruction *I, IGraph *G) {
+	GetElementPtrInst* findGEP08FromMemOp(Instruction *I) {
 	    Value *op = NULL;
 	    if (isa<StoreInst>(I)) {
 		StoreInst* s = cast<StoreInst>(I);
@@ -1236,12 +1244,21 @@ namespace {
 	    } else {
 		return NULL;
 	    }
+	    Instruction *insn;
 	    if (!isa<Instruction>(op)) {
 		return NULL;
+	    } else {
+		insn = cast<Instruction>(op);
 	    }
 	    vector<GetElementPtrInst*> list;
-	    vector<Node*> visited;
-	    searchGEP08Inst(list, visited, G->getNodeByValue(op));
+	    vector<Instruction*> visited;
+	    for (unsigned int i = 0; i < insn->getNumOperands(); i++) {
+		Value *op2 = insn->getOperand(i);
+		Instruction *insn2 = dyn_cast<Instruction>(op2);
+		if (insn2) {
+		    searchGEP08Inst(list, visited, insn2);
+		}
+	    }
 	    if (list.size() == 0) {
 		return NULL;
 	    } else {
@@ -1271,13 +1288,13 @@ namespace {
 	    return true;
 	}
 
-	bool isArrayAccessMemOp(Instruction *I, IGraph *G, unsigned addrSpace) {
+	bool isArrayAccessLoadOrStore(Instruction *I, unsigned addrSpace) {
 	    if (isa<StoreInst>(I)) {
 		StoreInst* s = cast<StoreInst>(I);
 		if (s->getPointerAddressSpace() != addrSpace) {
 		    return false;
 		}
-		GetElementPtrInst* gep = findGEP08FromMemOp(s, G);
+		GetElementPtrInst* gep = findGEP08FromMemOp(s);
 		return isArrayAccessGEP(gep);
 	    } else if (isa<LoadInst>(I)) {
 		LoadInst* l = cast<LoadInst>(I);
@@ -1285,7 +1302,7 @@ namespace {
 		    return false;
 		}
 		errs () << "Load + 100 : " << *I << "\n";
-		GetElementPtrInst* gep = findGEP08FromMemOp(l, G);
+		GetElementPtrInst* gep = findGEP08FromMemOp(l);
 		return isArrayAccessGEP(gep);
 	    } else {
 		return false;
