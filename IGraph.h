@@ -240,14 +240,14 @@ private:
 
     // For constructing Locality-SSA in IGraph
     void calculateDTandDF();
-    void setPostOrderNumberWithDFSImpl(Node*, int&);
+    void setPostOrderNumberWithDFSInternal(Node*, int&, Node::NodeElementType&);
     void setPostOrderNumberWithDFS();
     void computeDominatorTree();
     Node* computeIntersect(Node*, Node*);
     void computeDominanceFrontier();   
     void performPhiNodeInsertion(bool&);
     void performRenaming();
-    void performRenamingImpl(Node *, Node::NodeElementType&);
+    void performRenamingInternal(Node *, Node::NodeElementType&);
     void generateName(Value *v);
 
     /* === Utility functions for Inequality graph construction Ends === */

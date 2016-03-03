@@ -137,6 +137,9 @@ IGraph::InsnToNodeMapType IGraph::analyzeDefUseOfLocality(Function *F, GlobalToW
     /*    1. construct a set of addrspace 100 pointers. */
     /*    2. construct a list of blocks that def/use the pointer. */
     // analyze arguments
+    if (debug) {
+	errs () << "\t analyzing Def/Use of Locality\n";
+    }
     for (Function::arg_iterator I = F->arg_begin(), E = F->arg_end(); I!=E; ++I) {
 	Value *arg = I;	
 	if (arg->getType()->isPointerTy()
@@ -200,14 +203,19 @@ IGraph::InsnToNodeMapType IGraph::analyzeDefUseOfLocality(Function *F, GlobalToW
 }    
 
 void IGraph::buildGraph(Function *F, InsnToNodeMapType &NodeCandidates) {
+    if (debug) {
+	errs () << "\t buidling an initial graph\n";
+    }
+    // Build a graph based on NodeCandidates construted in the previous phase (namely analyzeDefUseOfLocality)
     for (PossiblyRemoteArrayType::iterator I = possiblyRemotePtrs.begin(),
 	     E = possiblyRemotePtrs.end(); I != E; I++) {
 	Value* val = *I;
 	if (debug) {
-	    errs () << "Working on :" << *val << "\n";	    
+	    errs () << "\t\tWorking on :" << *val << "\n";	    
 	}
-
+	// to record the first and last node in BB
 	DenseMap<BasicBlock*, std::pair<Node*, Node*>> BBInfo;
+	// 
 	bool firstOccurrence = true;
 	// Create Intra-block edge
 	for (Function::iterator BI = F->begin(), BE = F->end(); BI != BE; BI++) {
@@ -215,25 +223,30 @@ void IGraph::buildGraph(Function *F, InsnToNodeMapType &NodeCandidates) {
 	    // remember first and last node in BB so we can create edges between blocks.
 	    Node *firstNodeInBB = NULL;
 	    Node *lastNodeInBB = NULL;
+	    bool nodeAdded = false;
 	    
-	    // create node for arguments
+	    // For the first block, create node for arguments
 	    if (BI == F->begin()) {
 		if (find(possiblyRemoteArgs.begin(),
 			 possiblyRemoteArgs.end(),
-			 val) != possiblyRemoteArgs.end()) {				
+			 val) != possiblyRemoteArgs.end()) {
+		    // an argument that involoves address space 100 is DEF node
 		    Node *n = new Node(Node::NODE_DEF, val, NULL, 0, 100);
 		    this->addNode(n);
+		    nodeAdded = true;
 		    firstNodeInBB = n;
 		    lastNodeInBB = n;				    
 		    if (firstOccurrence) {
 			entry->addChild(n);
 			n->addParent(entry);
+			firstOccurrence = false;
 		    }
 		}		
 	    }
 
 	    // For each instruction
 	    // Create a node if an instruction contains possibly-remote access
+
 	    for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; I++) {
 		// add edge if needed
 		Instruction *insn = &*I;
@@ -247,6 +260,12 @@ void IGraph::buildGraph(Function *F, InsnToNodeMapType &NodeCandidates) {
 				       std::get<3>(info)); // Locality (either 0 or 100)
 		    // register the created node to the Graph.
 		    this->addNode(n);
+		    nodeAdded = true;
+		    if (firstOccurrence) {
+			entry->addChild(n);
+			n->addParent(entry);
+			firstOccurrence = false;
+		    }
 		    if (!firstNodeInBB) {
 			// First node in the current BB.
 			firstNodeInBB = n;			
@@ -259,22 +278,29 @@ void IGraph::buildGraph(Function *F, InsnToNodeMapType &NodeCandidates) {
 		    }
 		    lastNodeInBB = n;
 		}		
+	    } // for each instruction
+	    if (nodeAdded) {
+		BBInfo[BB] = std::make_pair(firstNodeInBB, lastNodeInBB);
+	    } else {
+		Node *dummyUSENode = new Node(Node::NODE_USE, val, NULL, 0, 100);
+		this->addNode(dummyUSENode);
+		BBInfo[BB] = std::make_pair(dummyUSENode, dummyUSENode);
 	    }
-	    //
-	    BBInfo[BB] = std::make_pair(firstNodeInBB, lastNodeInBB);	    
-	}
-	
-	// Inter-block edge
-	for (Function::iterator BI = F->begin(), BE = F->end(); BI != BE; BI++) {
+	} // for each block
+
+	// Add inter-block edges
+	// For each block in Function
+	for (Function::iterator BI = F->begin(),
+		 BE = F->end(); BI != BE; BI++) {
+	    // The current BB
 	    BasicBlock* BB = BI;
+	    // get the first and last node in this BB
 	    std::pair<Node*, Node*> &SrcBBinfo = BBInfo[BB];
-	    const TerminatorInst *TInst = BB->getTerminator();
-	    // get the last node of the current BB
+	    // get<1> : the last node in this BB
 	    Node* srcNode = std::get<1>(SrcBBinfo);
-	    if (!srcNode) {
-		continue;
-	    }
-	    // Succ	    
+	    const TerminatorInst *TInst = BB->getTerminator();
+	    // add edges :
+	    // the last node in the current BB -> the first node in succesor BBs
 	    for (unsigned I = 0, NSucc = TInst->getNumSuccessors(); I < NSucc; I++) {
 		BasicBlock *Succ = TInst->getSuccessor(I);
 		std::pair<Node*, Node*> &DstBBinfo = BBInfo[Succ];
@@ -286,48 +312,57 @@ void IGraph::buildGraph(Function *F, InsnToNodeMapType &NodeCandidates) {
 	    }		    
 	}
     }
-
-
 }
 
 void IGraph::calculateDTandDF() {
     // Dominator Tree Computation
     setPostOrderNumberWithDFS();
-    computeDominatorTree();
+    computeDominatorTree();    
     // Dominator Frontier Computation
     computeDominanceFrontier();
 }
 
-void IGraph::setPostOrderNumberWithDFSImpl(Node *node, int &number) {
+void IGraph::setPostOrderNumberWithDFSInternal(Node *node, int &number, Node::NodeElementType &visited) {
+    visited.push_back(node);
+    
     for (Node::iterator I = node->children_begin(),
 	                E = node->children_end();
 	 I != E; I++) {
 	Node *child = *I;
-	setPostOrderNumberWithDFSImpl(child, number);
-	if (child->getPostOrderNumber() == -1) {
-	    child->setPostOrderNumber(number++);
+	if (find(visited.begin(), visited.end(), child) == visited.end()) {
+	    setPostOrderNumberWithDFSInternal(child, number, visited);
 	}
     }
-
+    if (node->getPostOrderNumber() == -1) {
+	node->setPostOrderNumber(number++);
+    }
 }
 
 void IGraph::setPostOrderNumberWithDFS() {
+    if (debug) {
+	errs () << "\t setting post order number\n";
+    }
+
     /* 1. Reset Post order number */
     for (IGraph::iterator I = this->begin(),
 	     E = this->end(); I != E; I++) {
 	Node *n = *I;
 	n->resetPostOrderNumber();
     }
-
     /* 2. set post order number recursively */
     Node *entry = this->getEntry();
     entry->setPostOrderNumber(this->size() - 1);
     int number = 0;
-    setPostOrderNumberWithDFSImpl(entry, number);
+    Node::NodeElementType visited;
+    setPostOrderNumberWithDFSInternal(entry, number, visited);
     assert(this->size() - 1  == number);
 }
 
 void IGraph::computeDominatorTree() {
+    if (debug) {
+	errs () << "\t computing dominator tree\n";
+    }
+
     /* initialize the domiantor array */
     for (IGraph::iterator I = this->begin(),
 	     E = this->end(); I != E; I++) {
@@ -348,10 +383,10 @@ void IGraph::computeDominatorTree() {
 	/* in reverse postorder except entry node */
 	for (int i = this->size() - 1; i >= 0; i--) {
 	    Node * b = this->getNodeByPostOrderNumber(i);
-	    errs () << "PostOrder(" << i << ")\n";
 	    if (b == this->getEntry()) continue;
 	    /* pick one first processed predecessor  */
 	    Node::IDominatorTreeType new_idom(this->size(), false);
+	    errs () << "PostOrder(" << i << ")\n";
 	    Node *first_pred = NULL;
 	    for (IGraph::iterator IPRED = b->parents_begin(),
 		     EPRED = b->parents_end(); IPRED != EPRED; IPRED++) {
@@ -412,6 +447,10 @@ Node* IGraph::computeIntersect(Node* b1, Node* b2) {
 }
 
 void IGraph::computeDominanceFrontier() {
+    if (debug) {
+	errs () << "\t computing dominance frontier\n";
+    }
+
     /* 1. Reset Dominance Frontier */
     for (IGraph::iterator I = this->begin(), E = this->end(); I != E; I++) {
 	Node *b = *I;
@@ -450,6 +489,10 @@ void IGraph::computeDominanceFrontier() {
 }
 
 void IGraph::performPhiNodeInsertion(bool &Changed) {
+    if (debug) {
+	errs () << "\t performing phi-node insertion\n";
+    }
+
     SmallVector<Node*, 128> phiAddedNodes; /* set of nodes where phi is added */
     // For each addrspace(100) pointer
     for (PossiblyRemoteArrayType::iterator I = possiblyRemotePtrs.begin(),
@@ -484,7 +527,7 @@ void IGraph::performPhiNodeInsertion(bool &Changed) {
 		    for (Node::iterator NI = DFofDEF->parents_begin(),
 			     NE = DFofDEF->parents_end();
 			 NI != NE; NI++) {
-			Node *parents = *NI;
+			Node *parents = *NI;			
 			DFofDEFParents.push_back(parents);
 		    }
 		    for (Node::iterator NI = DFofDEFParents.begin(),
@@ -517,7 +560,7 @@ void IGraph::generateName(Value *v) {
     renamingCounters[v] = i + 1;    
 }
 
-void IGraph::performRenamingImpl(Node *n, Node::NodeElementType &visited) {
+void IGraph::performRenamingInternal(Node *n, Node::NodeElementType &visited) {
     if (find(visited.begin(), visited.end(), n) != visited.end()) {
 	return;
     } else {
@@ -545,7 +588,7 @@ void IGraph::performRenamingImpl(Node *n, Node::NodeElementType &visited) {
 	// see if the node is a children of n in DT
 	if (n != node
 	    && n->getPostOrderNumber() == node->getIDom().find_first()) {
-	    performRenamingImpl(node, visited);
+	    performRenamingInternal(node, visited);
 	}
     }
     if (n->getKind() == Node::NODE_DEF) {
@@ -554,6 +597,10 @@ void IGraph::performRenamingImpl(Node *n, Node::NodeElementType &visited) {
 }
 
 void IGraph::performRenaming() {
+    if (debug) {
+	errs () << "\t performing renaming\n";
+    }
+
     // 1. initilize counters and stacks
     for (PossiblyRemoteArrayType::iterator I = possiblyRemotePtrs.begin(),
 	     E = possiblyRemotePtrs.end(); I != E; I++) {
@@ -565,7 +612,7 @@ void IGraph::performRenaming() {
     // 2. perform renaming
     Node::NodeElementType visited;    
     Node *entry = this->getEntry();    
-    performRenamingImpl(entry, visited);
+    performRenamingInternal(entry, visited);
 }
 
 void IGraph::construct(Function *F, GlobalToWideInfo *info) {
