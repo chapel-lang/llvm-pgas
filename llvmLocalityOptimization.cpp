@@ -24,88 +24,109 @@
 // This pass tries to convert possibly-remote access (addrspace(100)* access)
 // to definitely-local to avoid runtime affinity checking overheads.
 //
-// To infer the locality, the locality optimization pass tries to utilize
-// following information :
-// - Case 1. Scalar access enclosed by Chapel's LOCAL statement.
+//   # How it works
+//   To infer the locality,
+//   the locality optimization pass tries to utilize following information :
+//   (Please also see test/local.ll)
+//
+//   ### Case 1. Scalar access enclosed by Chapel's LOCAL statement
 //   proc localizeByLocalStmt(ref x) : int {
 //     var p: int = 1;
 //     local { p = x; }
 //     return p + x; // x is definitely local
 //   }
-//   The locality level of x is inferred by searching SSA value graph,
-//   which is implemented in IGraph.[h|cpp].
-//   When you specify debugThisFn, the pass generates .dot file
-//   that can be visualized by the graphviz tool. (http://www.graphviz.org/)
 //
-// - Case 2. Array access enclosed by Chapel's LOCAL statement.
-//   proc habanero(A) : int {
-//     A(1) = 1; // A(1) is definitely local
-//     local { A(1) = 2; }
-//     A(2) = 3; // A(2) is possibly remote
+//   This pass considers control-flow:
+//   proc localizeUnderCondition1(ref x) : int {
+//     var p: int = 1;
+//     if (Q == 1) {
+//       local { p = x; }
+//     }
+//     return p + x; // does not localize since it might be non-local
+//     }
+//
+//   Here is another interesting example:
+//   proc localizeUnderCondition1(ref x) : int {
+//     var p: int = 1;
+//     if (Q == 1) {
+//       local { p = x; }
+//     } else if (Q==2) {
+//       local { p = x; }
+//     } else {
+//       local { p = x; }
+//     }
+//     return p + x; // x is definitely-local
 //   }
-//   This pass is element-sensitive. For example,
-//   the locality of A(1) is "definitely-local",
-//   but the pass leave A(2) "possibly-remote" since there is no enough
-//   information about the locality of A(2). 
-//   This is done by using a reduced version of the LLVM's global value 
-//   numbering
-//   pass (in ValueTable.[h|cpp]) and a array offset analysis.
 //
-// - Case 3. locale locale array declaration
+//   The locality level of x is inferred by searching
+//   an Locality-SSA inequlity graph,
+//   which is implemented in IGraph.[h|cpp].
+//
+//   (NOTE) When you specify debugThisFn,
+//   the pass generates .dot file that can be visualized by the graphviz tool.
+//   (http://www.graphviz.org/)
+//
+//   ### Case 2. Array access enclosed by Chapel's LOCAL statement
+//
+//    proc habanero(A) : int {
+//      A(1) = 1; // A(1) is definitely local
+//      local { A(1) = 2; }
+//      A(2) = 3; // A(2) is possibly remote
+//    }
+//
+//   The locality optimization pass is element-sensitive.
+//   For example, the locality of A(1) is _definitely-local_,
+//   but the pass leave A(2) _possibly-remote_
+//   since there is no enough information about the locality of A(2).
+// 
+//   This is done by using a reduced version of
+//   the LLVM's global value numbering pass
+//   for assigning a value number to variables and expressions
+//   (in ValueTable.[h|cpp]) and an array offset analysis.
+// 
+//   ### Case 3. Locale-locale array declaration
 //   proc localizeByArrayDecl () {
 //     var A: [1..10] int;
 //     return A(5);
-//    }
-//   The locality of A(5) is "definitely-local" since an array A is declared in 
-//   this scope.
+//   }
+// 
+//   The locality of A(5) is _definitely-local_
+//   since an array A is declared in this scope.
 //   Note that this pass is not element-sensitve so far. 
 //
-// Limitation, TODOs and future work:
-//   (Limitation) Locality Inference using SSA Value Graph with if statements:
-//     The current implementation does not propagate a condition even if a 
-//     local statement is enclosed by if statement.
-//     Hence, we may fail to infer the locality in some cases.
-//     (e.g. if (condition) { local{ p = x } })
-//     
-//   (Limitation) Chapel's local statement detection:
-//     Currently, we are assuming that gf.addr function calls correspond to 
-//     Chapel's local statements,
-//     but this is not always true because gf.addr is also used to extract a 
-//     local pointer from a wide pointer.
-//     To avoid this problem, we have an std::vector named "NonLocals" to 
-//     record a retun value of gf.addr
-//     which is also an argument of gf.make and the NonLocals are referred when 
-//     doing "exemptionTest".
-//     This may not be always true. Ideally, a PGAS-LLVM frontend should tell 
-//     the locality optimization pass
-//     which gf.addr call is a local statement.
+//   # Limitations
+//   ### Chapel's Array Declaration Detection
+//   We basically look for chpl__convertRuntimeTypeToValue
+//   to detect Chapel's array declaration.
+//   Please see analyzeCallInsn for more details.
 //
-//      Example :
-//        1. call i64* @.gf.addr.1(i64 addrspace(100)* %x)
-//        %x is definitely local
-//        2. %y = call i64* @.gf.addr.1(i64 addrspace(100)* %x)
-//           might not be definitely local
-//	     call i64 addrspace(100)* @.gf.make.1(..., %y) 
-//     
-//   (Limitation) Chapel's Array Declaration detection:
-//     We basically look for chpl__convertRuntimeTypeToValue to detect Chapel's 
-//     array declaration.
-//     This pattern matching completely depends on how PGAS-LLVM frontend emits 
-//     LLVM IR.
-//     Please see analyzeCallInsn for more details.
+//   # TODOs and future work
 //
-//   (Limitation) Intra-procedural pass:
-//     Unfortunately, the current implementation is not inter-procedural. 
+//   ### The utilization of high-level information
+//   The locality optimization pass has to recover high-level information
+//   such as array accesses and local statements from low-level LLVM IR,
+//   but ideally, PGAS-LLVM frontend are supposed to add annotations
+//   to keep these information so the locality optimization can easily
+//   recognize high-level information and perform language-agnostic
+//   PGAS optimization.
 //
-//   (Future Work) The utilization of high-level information:
-//     The locality optimization pass has to recover high-level information 
-//     such as 
-//     array accesses and local statements from low-level LLVM IR, but ideally,
-//     PGAS-LLVM frontend are supposed to add annotations to keep these 
-//     information
-//     so the locality optimization can perform language-agnostic PGAS 
-//     optimization.
+//   ### Infering the locality of chapel array access considering if statements
+//   While we try to localize a possibly-remote scalar access
+//   considering control-flow as much as possible,
+//   localizing array accesses are still conservative.
+//   Hence, we does not localize array access enclosed
+//   by if statement like this:
 //
+//   if (cond) { local { A(1) = 2; } }
+//   A(1) = 1; // A(1) is possibly remote
+//
+//   ### Make it inter-procedural pass
+//   This can make more _possibly-remote accesses_
+//   to _definitely-local accesses_.
+//
+//   ### More experiments with the latest version of the Chapel compiler
+//   I have been mainly working with the Chapel compiler 1.9.0. I need
+//   to check more if the locality optimization pass works.
 //===----------------------------------------------------------------------===//
 
 #include "llvmLocalityOptimization.h"
