@@ -844,7 +844,7 @@ namespace {
 	    salvageChapelArrayAccess(F, VN, LocalArraysGVN, LocalArraysDecl);
 
 	    // Dump analysis results
-//	    if (debugThisFn[0] && F->getName() == debugThisFn) {
+	    if (debugThisFn[0] && F->getName() == debugThisFn) {
 		VN->dump();
 		// For Graphviz
 		G->dumpDOT();
@@ -852,7 +852,7 @@ namespace {
 		LocalArraysGVN->dump();
 		errs () << "[Local Array Decl]\n";
 		LocalArraysDecl->dump();
-//           }
+           }
 	    
 	    // Process each instruction
 	    // try to convert load/store/getelementptr with addrspace(100) to addrspace(0) with using IGraph
@@ -1003,6 +1003,20 @@ namespace {
   
 	
 	void salvageChapelArrayAccess(Function *F, ValueTable *VN, LocalArrayInfo *LocalArraysGVN, LocalArrayInfo *LocalArraysDecl) {
+	    /* Skip this if there is a branch instruction. */
+	    /* (TODO) Integrate salvageChapelArrayAccess into IGraph later*/
+	    for (inst_iterator IS = inst_begin(F), IE = inst_end(F); IS != IE; IS++) {
+		Instruction *targetInsn = &*IS;
+		TerminatorInst *branch = dyn_cast<TerminatorInst>(targetInsn);
+		if (branch) {
+		    ReturnInst *RI = dyn_cast<ReturnInst>(targetInsn);
+		    if (!RI) {
+			branch->dump();
+			return;
+		    }
+		}		
+	    }
+
 	    for (inst_iterator IS = inst_begin(F), IE = inst_end(F); IS != IE; IS++) {
 		Instruction *targetInsn = &*IS;
 		switch (targetInsn->getOpcode()) {
