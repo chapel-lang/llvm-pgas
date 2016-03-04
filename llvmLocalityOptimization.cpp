@@ -289,36 +289,16 @@ namespace {
 	    return vn;
 	}
 
-	bool isDefinitelyLocalAccordingToIG(Value* op, IGraph *G) {
+	bool isDefinitelyLocalAccordingToIG(Value* op, Instruction *insn, IGraph *G) {
 	    if (fLLVMDisableIG) {
 		return false;
 	    }
-	    bool definitelyLocal = false;
-#if 0	    
-	    bool exempt = false;
-	    int ll = info->globalSpace;
-	    // find smallest possible locality level
-	    for (vector<Node*>::iterator I = G->begin(), E = G->end(); I != E; I++) {
-		Node* n = *I;
-		int lltmp = n->getLL(op);
-		if (lltmp != -1 && lltmp < ll) {
-		    ll = lltmp;
-		}
+	    IGraph::Answer answer = G->prove(op, insn, 0);
+	    if (answer == IGraph::TRUE) {
+		return true;
+	    } else {
+		return false;
 	    }
-	    exempt = exemptionTest(op, NonLocals);
-	    if (ll == 0 && !exempt) {
-		definitelyLocal = true;
-		NumLocalizedByIG++;
-		if (debugPassInsn) {
-		    errs () << *op << " is definitely local\n";
-		}
-	    } else if (ll == 0 && exempt) {
-		if (debugPassInsn) {
-		    errs () << *op << " is exempted\n";
-		}
-	    }
-#endif	    
-	    return definitelyLocal;
 	}
 
 	// Assuming op is operand of GEP inst (e.g. getelementptr inbounds i64, i64 addrspace(100)* op)
@@ -579,7 +559,7 @@ namespace {
 		    bool needToTransform = false;
 		    // For array access
 		    // Check if the pointer is definitely local (according to inequality graph)
-		    needToTransform |= isDefinitelyLocalAccordingToIG(oldOp, G);
+		    needToTransform |= isDefinitelyLocalAccordingToIG(oldOp, targetInsn, G);
 		    // Check if the pointer derives from locale-local array pointer (according to GVN)
 		    needToTransform |= isDefinitelyLocalAccordingToList(oldGEP, VM, G, LocalArraysGVN, true);
 		    // Check if the pointer derives from locale-local array pointer (according to locale-local array)
@@ -627,7 +607,7 @@ namespace {
 		    Instruction* newInst = NULL;
 		    // Old Operand addrspace(100)*
 		    oldOp = oldLoad->getPointerOperand();
-		    if (isDefinitelyLocalAccordingToIG(oldOp, G)) {
+		    if (isDefinitelyLocalAccordingToIG(oldOp, targetInsn, G)) {
 			newOp = findNewOpOrInsertGF(oldOp, VM, M, oldLoad);
 			newInst = new LoadInst(newOp, 
 					       "", 
@@ -660,7 +640,7 @@ namespace {
 		    Instruction* newInst = NULL;
 		    // Old Operand addrspace(100)*			
 		    oldOp = oldStore->getPointerOperand();
-		    if (isDefinitelyLocalAccordingToIG(oldOp, G)) {
+		    if (isDefinitelyLocalAccordingToIG(oldOp, targetInsn, G)) {
 			newOp = findNewOpOrInsertGF(oldOp, VM, M, oldStore);
 			newInst = new StoreInst(oldStore->getValueOperand(), 
 						newOp, 
@@ -763,7 +743,7 @@ namespace {
 		    if (srcSpace == info->globalSpace) {
 			ValueToValueMapTy::iterator I = VM.find(oldSrc);
 			bool renamed = I != VM.end() && I->second;
-			if (isDefinitelyLocalAccordingToIG(oldSrc, G) || renamed) {
+			if (isDefinitelyLocalAccordingToIG(oldSrc, targetInsn, G) || renamed) {
 			    newSrc = findNewOpOrInsertGF(oldSrc, VM, M, oldCall);
 			    needToTransform = true;
 			}
@@ -773,7 +753,7 @@ namespace {
 		    if (dstSpace == info->globalSpace) {
 			ValueToValueMapTy::iterator I = VM.find(oldDst);
 			bool renamed = I != VM.end() && I->second;
-			if (isDefinitelyLocalAccordingToIG(oldDst, G) || renamed) {
+			if (isDefinitelyLocalAccordingToIG(oldDst, targetInsn, G) || renamed) {
 			    newDst = findNewOpOrInsertGF(oldDst, VM, M, oldCall);
 			    needToTransform = true;
 			}
@@ -859,7 +839,7 @@ namespace {
 	    // If an instruction is enclosed by a local statement, set the locality level of each operand to 0.
 	    // Currently, we are assuming that gf.addr function calls correspond to Chapel's local statements, but this is not always true because gf.addr is also used to extract a local pointer from a wide pointer. We work on this later pass using NonLocals)       
 	    IGraph *G = new IGraph(F->getName());
-//	    G->construct(F, info);
+	    G->construct(F, info);
 	    
 	    // Perform a reduced version of GVN 
 	    ValueTable *VN = createValueTable(F);
@@ -1118,6 +1098,7 @@ namespace {
 			    Value *localArray = gep1->getPointerOperand();
 			    LocalArrayEntry *li = LocalArrays->getEntryByValue(localArray);
 			    // Analyze Offset
+			    // FIXME: this is only for store instruction! (I2->getOperand(0) if it's a load instruction)
 			    int offset = analyzeArrayAccessOffsets(dyn_cast<Instruction>(I2->getOperand(1)));
 			    if (offset != -1) {
 				//

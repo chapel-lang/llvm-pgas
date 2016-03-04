@@ -124,6 +124,7 @@ public:
 
     // Getter for general node information
     Value* getValue() const { return value; }
+    Instruction* getInstruction() const { return insn; }
     NodeKind getKind() const { return kind; }
     unsigned int getVersion() const { return version; }
     int getLocality() const { return locality; }
@@ -276,17 +277,6 @@ public:
     StringRef getName() const { return name; }
     unsigned size() const { return nodes.size(); }
 
-    Node* getNodeByValue(const Value* v) { 
-	for (NodeListType::iterator I = nodes.begin(),
-		 E = nodes.end(); I != E; I++) {
-	    Node* tmp = *I;
-	    if (v == tmp->getValue()) {
-		return tmp;
-	    }
-	}
-	return NULL;
-    }
-
     Node* getNodeByPostOrderNumber(const int number) { 
 	for (NodeListType::iterator I = nodes.begin(),
 		 E = nodes.end(); I != E; I++) {
@@ -299,7 +289,20 @@ public:
     }
 
     // Construct a inequality graph from an LLVM function
-    void construct(Function *F, GlobalToWideInfo *info);    
+    void construct(Function *F, GlobalToWideInfo *info);
+
+    //
+    Node* getDefNode(const Node*) const;
+    
+    enum Answer {
+	TRUE,
+	FALSE,
+	UNKNOWN	
+    };
+
+    //   
+    Answer prove(const Value*, const Instruction *, const int) const;
+    Answer proveUpward(const Node*, const int) const;
     
     // Used for dumping IGraph in DOT format
     void dumpDOT();

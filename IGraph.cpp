@@ -679,6 +679,91 @@ void IGraph::construct(Function *F, GlobalToWideInfo *info) {
     this->performRenaming();
 }
 
+Node* IGraph::getDefNode(const Node* node) const {    
+    for (IGraph::const_iterator I = this->begin(),
+	     E = this->end(); I != E; I++) {
+	Node* n = *I;
+	if (n->getValue() == node->getValue()
+	    && n->getVersion() == node->getVersion()
+	    && (n->getKind() == Node::NODE_DEF
+		|| n->getKind() == Node::NODE_PHI)) {
+	    return n;
+	}
+    }
+    return NULL;
+}
+
+IGraph::Answer IGraph::proveUpward(const Node* node,
+				     const int qLocality) const {
+    Answer answer;
+
+    switch (node->getKind()) {
+    case Node::NODE_DEF: {
+	answer = (node->getLocality() == qLocality)? TRUE : FALSE;
+	break;
+    }
+    case Node::NODE_USE: {
+	// search
+	Node *def = this->getDefNode(node);	
+	answer = (def == NULL)? UNKNOWN : proveUpward(def, qLocality);
+        break;
+    }
+    case Node::NODE_PHI: {
+	for (Node::const_iterator I = node->parents_begin(),
+		 E = node->parents_end(); I != E; I++) {
+	    const Node *n = *I;
+	    if (proveUpward(n, qLocality) == TRUE) {
+		answer = TRUE;
+	    } else {
+		answer = UNKNOWN;
+	    }
+	}
+	break;
+    }
+    default: {
+	answer = UNKNOWN;
+    }
+    }
+    return answer;
+}
+
+
+IGraph::Answer IGraph::prove(const Value* value,
+			     const Instruction *insn,
+                             const int qLocality) const {
+    if (debug) {
+	errs () << "Proving (" << *value << " == " << qLocality << ")? @" << *insn << "\n";
+    }
+    // locate corresponding node
+    const Node* target = NULL;
+    for (IGraph::const_iterator I = this->begin(),
+	     E = this->end(); I != E; I++) {
+	const Node* node = *I;
+	if (node->getValue() == value
+	    && node->getInstruction() == insn) {
+	    target = node;
+	}
+    }
+    
+    Answer answer;
+    if (!target) {
+	answer = UNKNOWN;
+    } else {
+	if (target->getLocality() == qLocality) {
+	    answer = TRUE;
+	} else {
+	    // upward search
+	    answer = proveUpward(target, qLocality);
+	}
+    }
+    if (debug) {
+	if (answer == TRUE) { errs () << "\tAnswer:TRUE\n"; }
+	if (answer == FALSE) { errs () << "\tAnswer:FALSE\n"; }
+	if (answer == UNKNOWN) { errs () << "\tAnswer:UNKNOWN\n"; }
+    }
+    return answer;
+}
+
 void IGraph::dumpDOT() {
     static int version = 0;
     stringstream ss;
