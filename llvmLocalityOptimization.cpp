@@ -295,6 +295,7 @@ namespace {
 	    }
 	    IGraph::Answer answer = G->prove(op, insn, 0);
 	    if (answer == IGraph::TRUE) {
+		NumLocalizedByIG++;
 		return true;
 	    } else {
 		return false;
@@ -346,9 +347,7 @@ namespace {
 			if (li1) {
 			    possiblyLocal = true;
 			    local = li1;
-			    errs () << "HOGE2\n";
 			}
-			errs () << "HOGE\n";
 			// search key assuming array descriptor has already been renamed.
 			const GetElementPtrInst *keyGep = NULL;
 			for (ValueToValueMapTy::iterator I = VM.begin(), E = VM.end(); I != E; I++) {
@@ -818,10 +817,6 @@ namespace {
 	    // Don't do anything if there is no body.
 	    // Does nothing for special functions since they have no body.
 	    if( F->begin() == F->end() ) return;
-
-	    legacy::FunctionPassManager* FPM_pre = new legacy::FunctionPassManager(&M);
-	    FPM_pre->add(llvm::createPromoteMemoryToRegisterPass());
-	    FPM_pre->run(*F);
 	    
 	    // For Debug
 	    if (debugThisFn[0] && F->getName() == debugThisFn) {
@@ -884,11 +879,7 @@ namespace {
 		// generate F->getName().before.ll 
 		dumpFunction(F, "after");
 	    }	
-	    
-	    legacy::FunctionPassManager *FPM_post = new legacy::FunctionPassManager(&M);
-	    FPM_post->add(llvm::createDemoteRegisterToMemoryPass());
-	    FPM_post->run(*F);
-	}
+    	}
 	
 	/*
 	  Locality Optimization Pass:

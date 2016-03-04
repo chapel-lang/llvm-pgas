@@ -200,10 +200,17 @@ IGraph::InsnToNodeMapType IGraph::analyzeDefUseOfLocality(Function *F, GlobalToW
 		addrspace = 0;
 	    } else {
 		// this function may have side effect
-		needToWork = true;
-		kind = Node::NODE_DEF;
-		ptrOp = NULL;
-		addrspace = 100;
+		CallInst *call = cast<CallInst>(insn);
+		for (unsigned int i = 0; i < call->getNumArgOperands(); i++) {
+		    Value *op = call->getArgOperand(i);
+		    if (op->getType()->isPointerTy()
+			&& op->getType()->getPointerAddressSpace() == info->globalSpace) {
+			needToWork = true;
+			kind = Node::NODE_DEF;
+			ptrOp = op;
+			addrspace = 100;
+		    }
+		}
 	    }
 	    break;
 	}
@@ -280,7 +287,8 @@ void IGraph::buildGraph(Function *F, InsnToNodeMapType &NodeCandidates) {
 	    for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; I++) {
 		// add edge if needed
 		Instruction *insn = &*I;
-		if (NodeCandidates.find(insn) != NodeCandidates.end()) {
+		if ((NodeCandidates.find(insn) != NodeCandidates.end())
+		    && std::get<1>(NodeCandidates[insn]) == val) {
 		    std::tuple<Node::NodeKind, Value*, Instruction*, int> &info = NodeCandidates[insn];
 		    // create a new node.
 		    Node *n = new Node(std::get<0>(info),  // Kind
@@ -416,7 +424,6 @@ void IGraph::computeDominatorTree() {
 	    if (b == this->getEntry()) continue;
 	    /* pick one first processed predecessor  */
 	    Node::IDominatorTreeType new_idom(this->size(), false);
-	    errs () << "PostOrder(" << i << ")\n";
 	    Node *first_pred = NULL;
 	    for (IGraph::iterator IPRED = b->parents_begin(),
 		     EPRED = b->parents_end(); IPRED != EPRED; IPRED++) {
@@ -603,7 +610,11 @@ void IGraph::performRenamingInternal(Node *n, Node::NodeElementType &visited) {
 	n->setVersion(renamingStacks[n->getValue()].top());
 	break;
     case Node::NODE_USE:
-	n->setVersion(renamingStacks[n->getValue()].top());
+	if (!renamingStacks[n->getValue()].empty()) {
+	    n->setVersion(renamingStacks[n->getValue()].top());
+	} else {
+	    n->setVersion(0);
+	}
 	break;
     case Node::NODE_DEF:
 	generateName(n->getValue());
@@ -618,6 +629,7 @@ void IGraph::performRenamingInternal(Node *n, Node::NodeElementType &visited) {
 	// see if the node is a children of n in DT
 	if (n != node
 	    && n->getPostOrderNumber() == node->getIDom().find_first()) {
+	    errs () << node->getPostOrderNumber() << " is dominated by " << n->getPostOrderNumber() << "\n";
 	    performRenamingInternal(node, visited);
 	}
     }
@@ -670,11 +682,11 @@ void IGraph::construct(Function *F, GlobalToWideInfo *info) {
     this->calculateDTandDF();
     /* 3-2. Insert Phi-nodes using Dominance Frontier */
     bool Changed = false;
-    this->performPhiNodeInsertion(Changed);
+    this->performPhiNodeInsertion(Changed);  
     /* 3-3. Compute DT again if the shape of the graph is changed */
     if (Changed) {
 	this->calculateDTandDF();
-    }    
+    }
     /* 3-4. Renaming */
     this->performRenaming();
 }
@@ -711,11 +723,10 @@ IGraph::Answer IGraph::proveUpward(const Node* node,
     case Node::NODE_PHI: {
 	for (Node::const_iterator I = node->parents_begin(),
 		 E = node->parents_end(); I != E; I++) {
-	    const Node *n = *I;
-	    if (proveUpward(n, qLocality) == TRUE) {
-		answer = TRUE;
-	    } else {
-		answer = UNKNOWN;
+	    const Node *n = *I;	    
+	    answer = proveUpward(n, qLocality);
+	    if (answer != TRUE) {
+		break;
 	    }
 	}
 	break;
