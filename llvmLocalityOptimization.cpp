@@ -138,14 +138,15 @@ namespace {
     static const char* debugThisFn = "habanero";
 
     // For Chapel Compiler & Breakdown
+    // These flags will be used from Chapel compiler to turn on/off each optimizer
     static const bool fLLVMDisableIG = false;
     static const bool fLLVMDisableDecl = false;
     static const bool fLLVMDisableGVN = false;
     static const bool fLLVMLocalityOpt = true;
 
     // Statistics
-    STATISTIC(NumLocalizedByIG, "Number of localized operations by IG");
-    STATISTIC(NumLocalizedByGVN, "Number of localized operations by GVN");
+    STATISTIC(NumLocalizedByIG, "Number of localized operations by Inequality Graph ");
+    STATISTIC(NumLocalizedByGVN, "Number of localized array operations by Global value numbering");
     STATISTIC(NumLocalizedByArrayDecl, "Number of localized operations by Locale-local Array");
         
     struct LocalityOpt : public ModulePass {
@@ -164,46 +165,70 @@ namespace {
 	LocalityOpt()
 	    : ModulePass(ID), info(NULL), layoutAfterwards("") {
 	}
-	
+
+	// This class is used to remember locale-local array
 	class LocalArrayEntry {
 	private:
+	    // A pointer to Chapel Array
 	    Value *op;
+	    // whether the whole array is local or not
 	    bool whole;
+	    // To remember ChapelArray(offset) is definitely-local
 	    vector<unsigned int> localOffsets;
+
 	public:
+	    // Constructor
 	    LocalArrayEntry(Value* _op, bool _whole) : op(_op), whole(_whole) {}
+
+	    // mark the speficied offset is definitely-local
 	    void addLocalOffset(unsigned int offs) {
-		for (vector<unsigned int>::iterator I = localOffsets.begin(), E = localOffsets.end(); I != E; I++) {
+		for (vector<unsigned int>::iterator I = localOffsets.begin(),
+			 E = localOffsets.end(); I != E; I++) {
 		    if (offs == *I) {
 			return;
 		    }
 		}
 		localOffsets.push_back(offs);
 	    }
-	    Value* getOp() { return op; }
-	    void dumpLocalOffsets() {
-		for (vector<unsigned int>::iterator I = localOffsets.begin(), E = localOffsets.end(); I != E; I++) {
-		    errs () << *I << ", ";
-		}
-		errs () << "\n";
-	    }
+
+	    // Getter
+	    Value* getOp() const { return op; }
+	    bool isWholeLocal() const { return whole; }
+
+	    // return true if the specified Array(offset) is definitely-local
 	    bool isLocalOffset(int offset) {
 		if (std::find(localOffsets.begin(), localOffsets.end(), offset) != localOffsets.end()) {
 		    return true;
 		}
 		return false;
-	    }      	    
-	    bool isWholeLocal() { return whole; }
+	    }
+
+	    // For Debug 
+	    void dumpLocalOffsets() {
+		for (vector<unsigned int>::iterator I = localOffsets.begin(),
+			 E = localOffsets.end(); I != E; I++) {
+		    errs () << *I << ", ";
+		}
+		errs () << "\n";
+	    }
 	};
 
+	// Collection of LocalArrayEntry defined above
 	class LocalArrayInfo {
 	private:
+	    // a list of local array entry
 	    vector<LocalArrayEntry*> list;
 	public:
+	    // Constructor
 	    LocalArrayInfo() {}
+
+	    // Add local entry to current collection
 	    void add(LocalArrayEntry *li) { list.push_back(li); }
+
+            // Take a pointer to ChapelArray and return the corresponding entry if exists
 	    LocalArrayEntry* getEntryByValue(const Value *op) {
-		for (vector<LocalArrayEntry*>::iterator I = list.begin(), E = list.end(); I != E; I++) {
+		for (vector<LocalArrayEntry*>::iterator I = list.begin(),
+			 E = list.end(); I != E; I++) {
 		    LocalArrayEntry *li = *I;
 		    if (li->getOp() == op) {
 			return li;
@@ -211,9 +236,12 @@ namespace {
 		}
 		return NULL;
 	    }
+
+	    // For Debugging
 	    void dump() {
 		errs () << "[Local Array Info Start]\n";
-		for (vector<LocalArrayEntry*>::iterator I = list.begin(), E = list.end(); I != E; I++) {
+		for (vector<LocalArrayEntry*>::iterator I = list.begin(),
+			 E = list.end(); I != E; I++) {
 		    LocalArrayEntry *li = *I;
 		    errs () << *(li->getOp()) << "\n";
 		    errs () << "Definitely Local Offset : ";
@@ -252,22 +280,6 @@ namespace {
 	    errs() << "\n";
 	}
 #endif
-	// For Debugging purpose
-	void insertPrintf(Module &M, Instruction *insertBefore, StringRef Str) {
-	    // Global Value
-	    Constant *StrConstant = ConstantDataArray::getString(M.getContext(), Str);
-	    GlobalVariable *GV = new GlobalVariable(M, StrConstant->getType(), true, GlobalValue::PrivateLinkage, StrConstant);
-	    GV->setUnnamedAddr(true);
-	    // GEP
-	    Value *zero = ConstantInt::get(Type::getInt32Ty(M.getContext()), 0);
-	    Value *gepArgs[] = { zero, zero };
-	    Instruction *gepInst = GetElementPtrInst::CreateInBounds(GV, gepArgs, "", insertBefore);
-	    // Printf
-	    Constant *putsFunc = M.getOrInsertFunction("puts", Type::getInt32Ty(M.getContext()), Type::getInt8PtrTy(M.getContext()), NULL);
-	    Value* printfArgs[1];
-	    printfArgs[0] = gepInst;
-	    CallInst::Create(putsFunc, printfArgs, "", insertBefore);
-	}
 
 	bool isaGlobalPointer(GlobalToWideInfo* info, Type* type) {
 	    PointerType* pt = dyn_cast<PointerType>(type);
