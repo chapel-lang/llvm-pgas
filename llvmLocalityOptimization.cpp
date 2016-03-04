@@ -47,7 +47,8 @@
 //   the locality of A(1) is "definitely-local",
 //   but the pass leave A(2) "possibly-remote" since there is no enough
 //   information about the locality of A(2). 
-//   This is done by using a reduced version of the LLVM's global value numbering
+//   This is done by using a reduced version of the LLVM's global value 
+//   numbering
 //   pass (in ValueTable.[h|cpp]) and a array offset analysis.
 //
 // - Case 3. locale locale array declaration
@@ -55,41 +56,55 @@
 //     var A: [1..10] int;
 //     return A(5);
 //    }
-//   The locality of A(5) is "definitely-local" since an array A is declared in this scope.
+//   The locality of A(5) is "definitely-local" since an array A is declared in 
+//   this scope.
 //   Note that this pass is not element-sensitve so far. 
 //
 // Limitation, TODOs and future work:
 //   (Limitation) Locality Inference using SSA Value Graph with if statements:
-//     The current implementation does not propagate a condition even if a local statement is enclosed by if statement.
+//     The current implementation does not propagate a condition even if a 
+//     local statement is enclosed by if statement.
 //     Hence, we may fail to infer the locality in some cases.
 //     (e.g. if (condition) { local{ p = x } })
 //     
 //   (Limitation) Chapel's local statement detection:
-//     Currently, we are assuming that gf.addr function calls correspond to Chapel's local statements,
-//     but this is not always true because gf.addr is also used to extract a local pointer from a wide pointer.
-//     To avoid this problem, we have an std::vector named "NonLocals" to record a retun value of gf.addr
-//     which is also an argument of gf.make and the NonLocals are referred when doing "exemptionTest".
-//     This may not be always true. Ideally, a PGAS-LLVM frontend should tell the locality optimization pass
+//     Currently, we are assuming that gf.addr function calls correspond to 
+//     Chapel's local statements,
+//     but this is not always true because gf.addr is also used to extract a 
+//     local pointer from a wide pointer.
+//     To avoid this problem, we have an std::vector named "NonLocals" to 
+//     record a retun value of gf.addr
+//     which is also an argument of gf.make and the NonLocals are referred when 
+//     doing "exemptionTest".
+//     This may not be always true. Ideally, a PGAS-LLVM frontend should tell 
+//     the locality optimization pass
 //     which gf.addr call is a local statement.
 //
 //      Example :
-//        1. call i64* @.gf.addr.1(i64 addrspace(100)* %x)       // %x is definitely local
-//        2. %y = call i64* @.gf.addr.1(i64 addrspace(100)* %x)  // might not be definitely local
+//        1. call i64* @.gf.addr.1(i64 addrspace(100)* %x)
+//        %x is definitely local
+//        2. %y = call i64* @.gf.addr.1(i64 addrspace(100)* %x)
+//           might not be definitely local
 //	     call i64 addrspace(100)* @.gf.make.1(..., %y) 
 //     
 //   (Limitation) Chapel's Array Declaration detection:
-//     We basically look for chpl__convertRuntimeTypeToValue to detect Chapel's array declaration.
-//     This pattern matching completely depends on how PGAS-LLVM frontend emits LLVM IR.
+//     We basically look for chpl__convertRuntimeTypeToValue to detect Chapel's 
+//     array declaration.
+//     This pattern matching completely depends on how PGAS-LLVM frontend emits 
+//     LLVM IR.
 //     Please see analyzeCallInsn for more details.
 //
 //   (Limitation) Intra-procedural pass:
 //     Unfortunately, the current implementation is not inter-procedural. 
 //
 //   (Future Work) The utilization of high-level information:
-//     The locality optimization pass has to recover high-level information such as 
+//     The locality optimization pass has to recover high-level information 
+//     such as 
 //     array accesses and local statements from low-level LLVM IR, but ideally,
-//     PGAS-LLVM frontend are supposed to add annotations to keep these information
-//     so the locality optimization can perform language-agnostic PGAS optimization.
+//     PGAS-LLVM frontend are supposed to add annotations to keep these 
+//     information
+//     so the locality optimization can perform language-agnostic PGAS 
+//     optimization.
 //
 //===----------------------------------------------------------------------===//
 
@@ -138,16 +153,20 @@ namespace {
     static const char* debugThisFn = "habanero";
 
     // For Chapel Compiler & Breakdown
-    // These flags will be used from Chapel compiler to turn on/off each optimizer
+    // These flags will be used from Chapel compiler to turn on/off each 
+    // optimizer
     static const bool fLLVMDisableIG = false;
     static const bool fLLVMDisableDecl = false;
     static const bool fLLVMDisableGVN = false;
     static const bool fLLVMLocalityOpt = true;
 
     // Statistics
-    STATISTIC(NumLocalizedByIG, "Number of localized operations by Inequality Graph ");
-    STATISTIC(NumLocalizedByGVN, "Number of localized array operations by Global value numbering");
-    STATISTIC(NumLocalizedByArrayDecl, "Number of localized operations by Locale-local Array");
+    STATISTIC(NumLocalizedByIG,
+	      "Number of localized operations by Inequality Graph ");
+    STATISTIC(NumLocalizedByGVN,
+	      "Number of localized array operations by Global value numbering");
+    STATISTIC(NumLocalizedByArrayDecl,
+	      "Number of localized operations by Locale-local Array");
         
     struct LocalityOpt : public ModulePass {
 
@@ -197,7 +216,9 @@ namespace {
 
 	    // return true if the specified Array(offset) is definitely-local
 	    bool isLocalOffset(int offset) {
-		if (std::find(localOffsets.begin(), localOffsets.end(), offset) != localOffsets.end()) {
+		if (std::find(localOffsets.begin(),
+			      localOffsets.end(), offset)
+		    != localOffsets.end()) {
 		    return true;
 		}
 		return false;
@@ -225,7 +246,8 @@ namespace {
 	    // Add local entry to current collection
 	    void add(LocalArrayEntry *li) { list.push_back(li); }
 
-            // Take a pointer to ChapelArray and return the corresponding entry if exists
+            // Take a pointer to ChapelArray and
+	    // return the corresponding entry if exists
 	    LocalArrayEntry* getEntryByValue(const Value *op) {
 		for (vector<LocalArrayEntry*>::iterator I = list.begin(),
 			 E = list.end(); I != E; I++) {
@@ -262,7 +284,8 @@ namespace {
 	    raw_fd_ostream File(Filename.c_str(), EC, sys::fs::F_Text);
 	    
 	    if (EC) {
-		errs() << "Dump Function : error: "<< EC.message() << "\n";		
+		errs() << "Dump Function : error: "<< EC.message() << "\n";	
+	
 	    } else {
 		File << *F;
 	    }
@@ -294,14 +317,17 @@ namespace {
 	
 	ValueTable* createValueTable(Function *F) {
 	    ValueTable *vn = new ValueTable();
-	    for (inst_iterator II = inst_begin(F), IE = inst_end(F); II != IE; ++II) {
+	    for (inst_iterator II = inst_begin(F), IE = inst_end(F); II != IE; 
+++II) {
 		Instruction *insn = &*II;
 		createValueTableInsn(vn, insn);
 	    }
 	    return vn;
 	}
 
-	bool isDefinitelyLocalAccordingToIG(Value* op, Instruction *insn, IGraph *G) {
+	bool isDefinitelyLocalAccordingToIG(Value* op,
+					    Instruction *insn, 
+					    IGraph *G) {
 	    if (fLLVMDisableIG) {
 		return false;
 	    }
@@ -314,9 +340,15 @@ namespace {
 	    }
 	}
 
-	// Assuming op is operand of GEP inst (e.g. getelementptr inbounds i64, i64 addrspace(100)* op)
-	// find array access and localize it if array descriptor is definitely local according to GVN info
-	bool isDefinitelyLocalAccordingToList(GetElementPtrInst* oldGEP, ValueToValueMapTy &VM, IGraph *G, LocalArrayInfo *LocalArrays, bool isGVN) {
+	// Assuming op is operand of GEP inst
+	// (e.g. getelementptr inbounds i64, i64 addrspace(100)* op)
+	// find array access and localize it if array descriptor is definitely 
+        // local according to GVN info
+	bool isDefinitelyLocalAccordingToList(GetElementPtrInst* oldGEP, 
+					      ValueToValueMapTy &VM,
+					      IGraph *G,
+					      LocalArrayInfo *LocalArrays,
+					      bool isGVN) {
 
 	    if (isGVN && fLLVMDisableGVN) {
 		return false;
@@ -331,7 +363,8 @@ namespace {
 	    }
 	    LocalArrayEntry *local = LocalArrays->getEntryByValue(op);
 
-	    // First Step : See if this GEP access is array access. If so, see if a pointer to array is in LocalArrayInfo  
+	    // First Step : See if this GEP access is array access.
+	    // If so, see if a pointer to array is in LocalArrayInfo  
 	    bool possiblyLocal = false;
 	    bool definitelyLocal = false;
 	    int offset = -1;
@@ -341,28 +374,36 @@ namespace {
 		possiblyLocal = true;
 	    }
 
-	    // Case 2 : this GEP is obaining a pointer to array element. (GEP %op, %offset)
-	    // Searching (GEP array, 0, 8) and see if array is in local LocalArray
+	    // Case 2 : this GEP is obaining a pointer to array element.
+	    // (GEP %op, %offset)
+	    // Searching (GEP array, 0, 8) and
+	    // see if array is in local LocalArray
 	    if (isa<LoadInst>(op)) {
 		LoadInst *loadInst = cast<LoadInst>(op);
-		GetElementPtrInst *gepInst = dyn_cast<GetElementPtrInst>(loadInst->getPointerOperand());
+		GetElementPtrInst *gepInst = 
+		    dyn_cast<GetElementPtrInst>(loadInst->getPointerOperand());
 		if (gepInst && gepInst->getNumIndices() == 2) {
 		    Constant *op1 = dyn_cast<Constant>(gepInst->getOperand(1));
 		    Constant *op2 = dyn_cast<Constant>(gepInst->getOperand(2));
 		    if (op1 != NULL && op2 != NULL
-			&& op1->getUniqueInteger() == 0 && op2->getUniqueInteger() == 8) {
+			&& op1->getUniqueInteger() == 0
+			&& op2->getUniqueInteger() == 8) {
 			// $shifteddata = GEP %arraydesciptor, 0 , 8
-			// original GEP is supposed to be array access (GEP %shifteddata, %offset)
-
+			// original GEP is supposed to be array access 
+			// (GEP %shifteddata, %offset)
 			// search array descriptor 
-			LocalArrayEntry *li1 = LocalArrays->getEntryByValue(gepInst->getPointerOperand());
+			LocalArrayEntry *li1 = 
+			    LocalArrays->getEntryByValue(
+				gepInst->getPointerOperand());
 			if (li1) {
 			    possiblyLocal = true;
 			    local = li1;
 			}
-			// search key assuming array descriptor has already been renamed.
+			// search key array descriptor has
+			// already been renamed.
 			const GetElementPtrInst *keyGep = NULL;
-			for (ValueToValueMapTy::iterator I = VM.begin(), E = VM.end(); I != E; I++) {
+			for (ValueToValueMapTy::iterator I = VM.begin(),
+				 E = VM.end(); I != E; I++) {
 			    if (I->second == gepInst) {
 				keyGep = cast<GetElementPtrInst>(I->first);
 				break;
@@ -371,7 +412,8 @@ namespace {
 			if (keyGep != NULL) {
 			    // this GEP is definitely array offset calculation
 			    const Value* v = keyGep->getPointerOperand();  
-			    LocalArrayEntry *li2 = LocalArrays->getEntryByValue(v);
+			    LocalArrayEntry *li2 = 
+				LocalArrays->getEntryByValue(v);
 			    if (li2) {
 				possiblyLocal = true;
 				local = li2;
@@ -409,7 +451,9 @@ namespace {
 	    return definitelyLocal;
 	}
 	
-	Value* findNewOpOrInsertGF(Value *oldOp, ValueToValueMapTy &VM, Module &M, Instruction *insertBefore) {
+	Value* findNewOpOrInsertGF(Value *oldOp,
+				   ValueToValueMapTy &VM,
+				   Module &M, Instruction *insertBefore) {
 	    Value *tmpOp, *newOp;
 	    // check mapping
 	    ValueToValueMapTy::iterator I = VM.find(oldOp);
@@ -419,7 +463,8 @@ namespace {
 		tmpOp = oldOp;
 	    }
 	    Type* t = tmpOp->getType();
-	    if (t->isPointerTy() && t->getPointerAddressSpace() == info->globalSpace) {
+	    if (t->isPointerTy()
+		&& t->getPointerAddressSpace() == info->globalSpace) {
 		// create gf.addr.
 		PointerType *addrType = cast<PointerType>(oldOp->getType());
 		assert(addrType != NULL);
@@ -432,7 +477,8 @@ namespace {
 		    Function* fn = getAddrFn(&M, info, addrType);
 		    Value* gf_addr_args[1];
 		    gf_addr_args[0] = tmpOp;
-		    newOp = CallInst::Create(fn, gf_addr_args, "", insertBefore);
+		    newOp = CallInst::Create(fn, gf_addr_args, "", 
+					     insertBefore);
 		    if (debugPassInsn) {
 			errs() << "GF Inserted : " << *newOp << "\n";
 		    }
@@ -455,7 +501,8 @@ namespace {
 	    }
 	    
 	    if (InvokeInst *II = dyn_cast<InvokeInst>(oldCall)) {
-		newCall = InvokeInst::Create(newF, II->getNormalDest(), II->getUnwindDest(),
+		newCall = InvokeInst::Create(newF, II->getNormalDest(), 
+					     II->getUnwindDest(),
 					     args, "", oldCall);
 		cast<InvokeInst>(newCall)->setCallingConv(CS.getCallingConv());
 		cast<InvokeInst>(newCall)->setAttributes(CallPAL);
@@ -469,7 +516,8 @@ namespace {
 	    if (MDNode *tbaa = oldCall->getMetadata(LLVMContext::MD_tbaa)) {
 		newCall->setMetadata(LLVMContext::MD_tbaa, tbaa);
 	    }
-	    if (MDNode *tbaaStruct = oldCall->getMetadata(LLVMContext::MD_tbaa_struct)) {
+	    if (MDNode *tbaaStruct = 
+		oldCall->getMetadata(LLVMContext::MD_tbaa_struct)) {
 		newCall->setMetadata(LLVMContext::MD_tbaa_struct, tbaaStruct);
 	    }
 	    return newCall;
@@ -487,7 +535,8 @@ namespace {
 	    if (insn->getOpcode() != Instruction::Call) {
 		for(unsigned int i=0; i < insn->getNumOperands(); i++) {
 		    Value *old = insn->getOperand(i);
-		    if( isaGlobalPointer(info, old->getType()) ) needsWork = true;
+		    if( isaGlobalPointer(info, old->getType()) )
+			needsWork = true;
 		}
 		if( isaGlobalPointer(info, insn->getType()) ) needsWork = true;
 	    } else {
@@ -497,8 +546,10 @@ namespace {
 		if (isa<MemIntrinsic>(call) && isa<MemCpyInst>(call)) {
 		    Value* gDst = call->getArgOperand(0);
 		    Value* gSrc = call->getArgOperand(1);
-		    if (gDst->getType()->getPointerAddressSpace() == info->globalSpace
-			|| gSrc->getType()->getPointerAddressSpace() == info->globalSpace) {
+		    if (gDst->getType()->getPointerAddressSpace()
+			== info->globalSpace
+			|| gSrc->getType()->getPointerAddressSpace()
+			== info->globalSpace) {
 			needsWork = true;
 		    }			
 		} else if (F->getName().startswith(".gf.addr")) { 
@@ -508,7 +559,14 @@ namespace {
 	    return needsWork;
 	}
 
-	void processInstruction(Instruction* targetInsn, SmallVector<Instruction*, 16> &deletedInsn, ValueToValueMapTy &VM, ValueTable *VN, Module &M, IGraph *G, LocalArrayInfo *LocalArraysGVN, LocalArrayInfo *LocalArraysDecl) {
+	void processInstruction(Instruction* targetInsn, 
+				SmallVector<Instruction*, 16> &deletedInsn,
+				ValueToValueMapTy &VM,
+				ValueTable *VN,
+				Module &M,
+				IGraph *G,
+				LocalArrayInfo *LocalArraysGVN,
+				LocalArrayInfo *LocalArraysDecl) {
 	    if(debugPassInsn) {
 		errs() << "@" << *targetInsn << "\n";
 	    }
@@ -522,7 +580,10 @@ namespace {
 	    }
 	    
 	    switch(targetInsn->getOpcode()) {
-	    case Instruction::PHI: { /* TODO : Consider PHI Node */ break; }
+	    case Instruction::PHI: {
+		/* TODO : Consider PHI Node if needed */
+		break;
+	    }
 	    case Instruction::BitCast: {
 		CastInst *oldCast = cast<CastInst>(targetInsn);
 		Value* op = oldCast->getOperand(0);
@@ -535,12 +596,22 @@ namespace {
 		    Type* oldSrcTy = oldCast->getSrcTy();
 		    Type* newSrcTy = newOp->getType();
 		    Type* oldDstTy = oldCast->getDestTy();
-		    assert(oldSrcTy->isPointerTy() && newSrcTy->isPointerTy() && oldDstTy->isPointerTy());
+		    assert(oldSrcTy->isPointerTy()
+			   && newSrcTy->isPointerTy() 
+			   && oldDstTy->isPointerTy());
 		    bool srcIsWide = newSrcTy->getPointerAddressSpace() == 0;
-		    bool dstIsGlobal = oldDstTy->getPointerAddressSpace() == info->globalSpace;
+		    bool dstIsGlobal = oldDstTy->getPointerAddressSpace()
+			== info->globalSpace;
 		    if (srcIsWide && dstIsGlobal) {
-			Type* newDstTy = convertTypeGlobalToWide(&M, info, oldDstTy);
-			Instruction* newInst = CastInst::Create(oldCast->getOpcode(), newOp, newDstTy, "", oldCast);
+			Type* newDstTy = convertTypeGlobalToWide(&M,
+								 info, 
+								 oldDstTy);
+			Instruction* newInst = CastInst::Create(
+			    oldCast->getOpcode(),
+			    newOp,
+			    newDstTy,
+			    "",
+			    oldCast);
 			if (debugPassInsn) {
 			    errs() << "Old Instruction : " << *oldCast << "\n";
 			    errs() << "New Instruction : " << *newInst << "\n";
@@ -548,9 +619,12 @@ namespace {
 			VM[oldCast] = newInst;
 			deletedInsn.push_back(oldCast);
 		    } else {
-			RemapInstruction(targetInsn, VM, RF_IgnoreMissingEntries);
+			RemapInstruction(targetInsn,
+					 VM,
+					 RF_IgnoreMissingEntries);
 			if (debugPassInsn) {
-			    errs() << "New Instruction : " << *targetInsn << "\n";
+			    errs() << "New Instruction : "
+				   << *targetInsn << "\n";
 			}
 		    }
 		} else {
@@ -561,7 +635,8 @@ namespace {
 		break;
 	    }
 	    case Instruction::GetElementPtr: {
-		GetElementPtrInst *oldGEP = cast<GetElementPtrInst>(targetInsn);
+		GetElementPtrInst *oldGEP
+		    = cast<GetElementPtrInst>(targetInsn);
 		if (oldGEP->getAddressSpace() == info->globalSpace) {
 		    Value *oldOp, *newOp;
 		    Instruction* newInst = NULL;
@@ -569,32 +644,63 @@ namespace {
 		    oldOp = oldGEP->getPointerOperand();
 		    bool needToTransform = false;
 		    // For array access
-		    // Check if the pointer is definitely local (according to inequality graph)
-		    needToTransform |= isDefinitelyLocalAccordingToIG(oldOp, targetInsn, G);
-		    // Check if the pointer derives from locale-local array pointer (according to GVN)
-		    needToTransform |= isDefinitelyLocalAccordingToList(oldGEP, VM, G, LocalArraysGVN, true);
-		    // Check if the pointer derives from locale-local array pointer (according to locale-local array)
-		    needToTransform |= isDefinitelyLocalAccordingToList(oldGEP, VM, G, LocalArraysDecl, false);
-		    // 
+		    // Check if the pointer is definitely local
+		    // (according to inequality graph)
+		    needToTransform |=
+			isDefinitelyLocalAccordingToIG(oldOp, targetInsn, G);
+		    // Check if the pointer derives from locale-local array 
+		    // pointer (according to GVN)
+		    needToTransform |=
+			isDefinitelyLocalAccordingToList(oldGEP,
+							 VM,
+							 G,
+							 LocalArraysGVN,
+							 true);
+		    // Check if the pointer derives from locale-local array 
+                    // pointer (according to locale-local array)
+		    needToTransform |=
+			isDefinitelyLocalAccordingToList(oldGEP,
+							 VM,
+							 G,
+							 LocalArraysDecl,
+							 false);
+
 		    ValueToValueMapTy::iterator I = VM.find(oldOp);
 		    needToTransform |= (I != VM.end() && I->second);
 		    if (needToTransform) {
+			// localize
 			newOp = findNewOpOrInsertGF(oldOp, VM, M, oldGEP);
 			// creating new GEP
 			std::vector<Value *> args;
-			for (User::op_iterator OI = oldGEP->idx_begin(), OE = oldGEP->idx_end(); OI != OE; OI++) {
+			for (User::op_iterator OI = oldGEP->idx_begin(),
+				 OE = oldGEP->idx_end();
+			     OI != OE; OI++) {
 			    args.push_back(*OI);
 			}
 			ArrayRef<Value*> argsRef(args);
 			// Create new GEP
 			bool inBounds = oldGEP->isInBounds();
 			if (inBounds) {
-			    newInst = GetElementPtrInst::CreateInBounds(newOp, argsRef, oldGEP->getName(), oldGEP);
+			    newInst =
+				GetElementPtrInst::CreateInBounds(newOp, 
+								  argsRef,
+								  oldGEP->
+								  getName(),
+								  oldGEP);
 			} else {
 #if HAVE_LLVM_VER >= 35
-			    newInst = GetElementPtrInst::Create(newOp->getType(), newOp, argsRef, oldGEP->getName(), oldGEP);
+			    newInst = 
+				GetElementPtrInst::Create(newOp->getType(),
+							  newOp,
+							  argsRef,
+							  oldGEP->getName(), 
+oldGEP);
 #else
-			    newInst = GetElementPtrInst::Create(newOp, argsRef, oldGEP->getName(), oldGEP);
+			    newInst = GetElementPtrInst::Create(newOp,
+								argsRef, 
+								oldGEP
+								->getName(),
+								oldGEP);
 #endif			    
 			}			
 			if (debugPassInsn) {
@@ -627,7 +733,8 @@ namespace {
 					       oldLoad->getOrdering(), 
 					       oldLoad->getSynchScope(), 
 					       oldLoad);
-			if (MDNode *tbaa = oldLoad->getMetadata(LLVMContext::MD_tbaa)) {
+			if (MDNode *tbaa = 
+			    oldLoad->getMetadata(LLVMContext::MD_tbaa)) {
 			    newInst->setMetadata(LLVMContext::MD_tbaa, tbaa);
 			}
 			if (debugPassInsn) {
@@ -660,7 +767,8 @@ namespace {
 						oldStore->getOrdering(), 
 						oldStore->getSynchScope(), 
 						oldStore);
-			if (MDNode *tbaa = oldStore->getMetadata(LLVMContext::MD_tbaa)) {
+			if (MDNode *tbaa = 
+			    oldStore->getMetadata(LLVMContext::MD_tbaa)) {
 			    newInst->setMetadata(LLVMContext::MD_tbaa, tbaa);
 			}
 			if (debugPassInsn) {
@@ -675,7 +783,8 @@ namespace {
 	    }
 	    case Instruction::Call: {
 		CallInst *oldCall = cast<CallInst>(targetInsn);
-		Function* oldF = oldCall->getCalledFunction(); // null if indirect
+		Function* oldF = oldCall->getCalledFunction();
+                // null if indirect
 		assert(oldF != NULL);
 		if (oldF->getName().startswith(".gf.addr")) {
 		    Value *op = oldCall->getArgOperand(0);
@@ -695,7 +804,8 @@ namespace {
 		    break;	    
 		} else if (isa<MemIntrinsic>(oldCall)) {
 		    if (isa<MemSetInst>(oldCall)) {
-			Value *oldDst = oldCall->getArgOperand(0);			
+			Value *oldDst = oldCall->getArgOperand(0);		
+	
 			ValueToValueMapTy::iterator I = VM.find(oldDst);
 			if (I != VM.end() && I->second) {
 			    Value* newDst = I->second;
@@ -713,22 +823,40 @@ namespace {
 			    args[3] = oldCall->getArgOperand(3);
 			    args[4] = oldCall->getArgOperand(4);
 
-			    Function* memSetF = Intrinsic::getDeclaration(&M, Intrinsic::memset, types);
-			    Instruction* newCall = CallInst::Create(memSetF, args, "", oldCall);
-			    cast<CallInst>(newCall)->setCallingConv(CS.getCallingConv());
+			    Function* memSetF =
+				Intrinsic::getDeclaration(&M, 
+							  Intrinsic::memset,
+							  types);
+			    Instruction* newCall =
+				CallInst::Create(memSetF,
+						 args,
+						 "",
+						 oldCall);
+			    
+			    cast<CallInst>(newCall)
+				->setCallingConv(CS.getCallingConv());
 			    cast<CallInst>(newCall)->setAttributes(CallPAL);
 			    if (cast<CallInst>(oldCall)->isTailCall()) {
 				cast<CallInst>(newCall)->setTailCall();
 			    }
-			    if (MDNode *tbaa = oldCall->getMetadata(LLVMContext::MD_tbaa)) {
-				newCall->setMetadata(LLVMContext::MD_tbaa, tbaa);
+			    if (MDNode *tbaa = 
+				oldCall->getMetadata(LLVMContext::MD_tbaa)) {
+				newCall->setMetadata(LLVMContext::MD_tbaa, 
+						     tbaa);
 			    }
-			    if (MDNode *tbaaStruct = oldCall->getMetadata(LLVMContext::MD_tbaa_struct)) {
-				newCall->setMetadata(LLVMContext::MD_tbaa_struct, tbaaStruct);
+			    if (MDNode *tbaaStruct = 
+				oldCall
+				->getMetadata(LLVMContext::MD_tbaa_struct)) {
+				
+				newCall
+				    ->setMetadata(LLVMContext::MD_tbaa_struct,
+						  tbaaStruct);
 			    }
 			    if (debugPassInsn) {
-				errs () << "MemSet Old Instruction : " << *oldCall << "\n";
-				errs () << "New Instruction : " << *newCall << "\n";
+				errs () << "MemSet Old Instruction : "
+					<< *oldCall << "\n";
+				errs () << "New Instruction : " << *newCall
+					<< "\n";
 			    }
 			    VM[oldCall] = newCall;
 			    deletedInsn.push_back(oldCall);			
@@ -737,15 +865,18 @@ namespace {
 			}
 			break;
 		    }
-		    assert(isa<MemCpyInst>(oldCall) || isa <MemMoveInst>(oldCall));
+		    assert(isa<MemCpyInst>(oldCall)
+			   || isa <MemMoveInst>(oldCall));
 		    Value *newDst, *newSrc;
 		    Value* oldDst = oldCall->getArgOperand(0);
 		    Value* oldSrc = oldCall->getArgOperand(1);
 		    bool needToTransform = false;
 
-		    unsigned dstSpace = oldDst->getType()->getPointerAddressSpace();
-		    unsigned srcSpace = oldSrc->getType()->getPointerAddressSpace();
-
+		    unsigned dstSpace = 
+			oldDst->getType()->getPointerAddressSpace();
+		    unsigned srcSpace = 
+			oldSrc->getType()->getPointerAddressSpace();
+		    
 		    CallSite CS(oldCall);
 		    const AttributeSet &CallPAL = CS.getAttributes();
 		    Type *types[3];
@@ -754,8 +885,14 @@ namespace {
 		    if (srcSpace == info->globalSpace) {
 			ValueToValueMapTy::iterator I = VM.find(oldSrc);
 			bool renamed = I != VM.end() && I->second;
-			if (isDefinitelyLocalAccordingToIG(oldSrc, targetInsn, G) || renamed) {
-			    newSrc = findNewOpOrInsertGF(oldSrc, VM, M, oldCall);
+			if (isDefinitelyLocalAccordingToIG(oldSrc,
+							   targetInsn, 
+							   G)
+			    || renamed) {
+			    newSrc = findNewOpOrInsertGF(oldSrc,
+							 VM,
+							 M, 
+							 oldCall);
 			    needToTransform = true;
 			}
 		    } else {
@@ -764,8 +901,13 @@ namespace {
 		    if (dstSpace == info->globalSpace) {
 			ValueToValueMapTy::iterator I = VM.find(oldDst);
 			bool renamed = I != VM.end() && I->second;
-			if (isDefinitelyLocalAccordingToIG(oldDst, targetInsn, G) || renamed) {
-			    newDst = findNewOpOrInsertGF(oldDst, VM, M, oldCall);
+			if (isDefinitelyLocalAccordingToIG(oldDst,
+							   targetInsn, 
+							   G) || renamed) {
+			    newDst = findNewOpOrInsertGF(oldDst,
+							 VM,
+							 M, 
+							 oldCall);
 			    needToTransform = true;
 			}
 		    } else {
@@ -788,21 +930,33 @@ namespace {
 
 		    Function* memF = NULL;
 		    if (isa<MemCpyInst>(oldCall)) {
-			memF = Intrinsic::getDeclaration(&M, Intrinsic::memcpy, types);
+			memF = Intrinsic::getDeclaration(&M,
+							 Intrinsic::memcpy, 
+							 types);
 		    } else if (isa <MemMoveInst>(oldCall)) {
-			memF = Intrinsic::getDeclaration(&M, Intrinsic::memmove, types);
+			memF = Intrinsic::getDeclaration(&M, 
+							 Intrinsic::memmove,
+							 types);
 		    }
-		    Instruction* newCall = CallInst::Create(memF, args, "", oldCall);
-		    cast<CallInst>(newCall)->setCallingConv(CS.getCallingConv());
+		    Instruction* newCall = CallInst::Create(memF,
+							    args,
+							    "", 
+							    oldCall);
+		    
+		    cast<CallInst>(newCall)
+			->setCallingConv(CS.getCallingConv());
 		    cast<CallInst>(newCall)->setAttributes(CallPAL);
 		    if (cast<CallInst>(oldCall)->isTailCall()) {
 			cast<CallInst>(newCall)->setTailCall();
 		    }
-		    if (MDNode *tbaa = oldCall->getMetadata(LLVMContext::MD_tbaa)) {
+		    if (MDNode *tbaa = 
+			oldCall->getMetadata(LLVMContext::MD_tbaa)) {
 			newCall->setMetadata(LLVMContext::MD_tbaa, tbaa);
 		    }
-		    if (MDNode *tbaaStruct = oldCall->getMetadata(LLVMContext::MD_tbaa_struct)) {
-			newCall->setMetadata(LLVMContext::MD_tbaa_struct, tbaaStruct);
+		    if (MDNode *tbaaStruct = 
+			oldCall->getMetadata(LLVMContext::MD_tbaa_struct)) {
+			newCall->setMetadata(LLVMContext::MD_tbaa_struct, 
+					     tbaaStruct);
 		    }
 		    if (debugPassInsn) {
 			errs () << "Old Instruction : " << *oldCall << "\n";
@@ -810,7 +964,7 @@ namespace {
 		    }
 		    VM[oldCall] = newCall;
 		    deletedInsn.push_back(oldCall);		
-	
+		    
 		} else {
 		    RemapInstruction(targetInsn, VM, RF_IgnoreMissingEntries);
 		}
@@ -842,9 +996,17 @@ namespace {
 	    LocalArrayInfo *LocalArraysDecl = new LocalArrayInfo();
 	    
 	    // Create IGraph
-	    // Inspect all instructions and construt IGraph. Each node of IGraph contains a densemap that map that is one-to-one mapping of each operand into a specific address space (either 100 or 0).
-	    // If an instruction is enclosed by a local statement, set the locality level of each operand to 0.
-	    // Currently, we are assuming that gf.addr function calls correspond to Chapel's local statements, but this is not always true because gf.addr is also used to extract a local pointer from a wide pointer. We work on this later pass using NonLocals)       
+	    // Inspect all instructions and construt IGraph. Each node of 
+            // IGraph contains a densemap that map that is
+	    // one-to-one mapping of each operand 
+	    // into a specific address space (either 100 or 0).
+	    // If an instruction is enclosed by a local statement, set the 
+            // locality level of each operand to 0.
+	    // Currently, we are assuming that gf.addr function calls 
+            // correspond to Chapel's local statements,
+	    // but this is not always true because gf.addr is also used
+	    // to extract a local pointer from a wide pointer. We work on 
+            // this later pass using NonLocals)       
 	    IGraph *G = new IGraph(F->getName());
 	    G->construct(F, info);
 	    
@@ -867,12 +1029,17 @@ namespace {
            }
 	    
 	    // Process each instruction
-	    // try to convert load/store/getelementptr with addrspace(100) to addrspace(0) with using IGraph
+	    // try to convert load/store/getelementptr with addrspace(100)
+	    // to addrspace(0) with using IGraph
 	    SmallVector<Instruction*, 16> deletedInsn;
 	    ValueToValueMapTy ValueMap;
-	    for (inst_iterator II = inst_begin(F), IE = inst_end(F); II != IE; ++II) {
+	    for (inst_iterator II = inst_begin(F),
+		     IE = inst_end(F); II != IE; ++II) {
 		Instruction *insn = &*II;
-		processInstruction(insn, deletedInsn, ValueMap, VN, M, G, LocalArraysGVN, LocalArraysDecl);
+		processInstruction(insn,
+				   deletedInsn,
+				   ValueMap, VN, M, G, 
+				   LocalArraysGVN, LocalArraysDecl);
 	    }
 	    for (unsigned int i = 0; i < deletedInsn.size(); i++) {
 		Instruction *insn = deletedInsn[i];
@@ -896,9 +1063,11 @@ namespace {
 	/*
 	  Locality Optimization Pass:
 	  
-	  This pass tries to replace address space 100 pointer with address space 0 pointer.
+	  This pass tries to replace address space 100 pointer with address 
+	  space 0 pointer.
 	  1. Local Statement (by users)
-	  2. Locale local array declaration (by users but not explicitly expressed)
+	  2. Locale local array declaration (by users but not explicitly 
+	  expressed)
 	*/
 
 	virtual bool runOnModule(Module &M) {
@@ -916,14 +1085,17 @@ namespace {
 		info->wideSpace = 101;
 		info->localeIdType = M.getTypeByName("struct.c_localeid_t");
 		if( ! info->localeIdType ) {
-		    StructType* t = StructType::create(M.getContext(), "struct.c_localeid_t");
-		    t->setBody(Type::getInt32Ty(M.getContext()), Type::getInt32Ty(M.getContext()), NULL);
+		    StructType* t = StructType::create(M.getContext(), 
+						       "struct.c_localeid_t");
+		    t->setBody(Type::getInt32Ty(M.getContext()), 
+			       Type::getInt32Ty(M.getContext()), NULL);
 		    info->localeIdType = t;
 		}
 		info->nodeIdType = Type::getInt32Ty(M.getContext());
-
+		
 		// Now go identify special functions in the module by name.
-		for (Module::iterator next_func = M.begin(); next_func!= M.end(); )
+		for (Module::iterator next_func = M.begin(); next_func!= 
+			 M.end(); )
 		{
 		    Function *F = &*next_func;
 		    ++next_func;
@@ -943,18 +1115,22 @@ namespace {
 			GlobalPointerInfo & r = info->gTypes[gType];
 			r.addrFn = F;
 			info->specialFunctions.insert(F);
-		    } else if( F->getName().startswith(GLOBAL_FN_GLOBAL_LOCID) &&
+		    } else if( F->getName().startswith(GLOBAL_FN_GLOBAL_LOCID) 
+&&
 			       FT->getNumParams() == 1 &&
 			       FT->getReturnType() == info->localeIdType &&
-			       containsGlobalPointers(info, FT->getParamType(0)) ) {
+			       containsGlobalPointers(info, 
+FT->getParamType(0)) ) {
 			Type* gType = FT->getParamType(0);
 			GlobalPointerInfo & r = info->gTypes[gType];
 			r.locFn = F;
 			info->specialFunctions.insert(F);
-		    } else if( F->getName().startswith(GLOBAL_FN_GLOBAL_NODEID) &&
+		    } else if( F->getName().startswith(GLOBAL_FN_GLOBAL_NODEID) 
+&&
 			       FT->getNumParams() == 1 &&
 			       FT->getReturnType() == info->nodeIdType &&
-			       containsGlobalPointers(info, FT->getParamType(0)) ) {
+			       containsGlobalPointers(info, 
+FT->getParamType(0)) ) {
 			Type* gType = FT->getParamType(0);
 			GlobalPointerInfo & r = info->gTypes[gType];
 			r.nodeFn = F;
@@ -963,22 +1139,28 @@ namespace {
 			       FT->getNumParams() == 2 &&
 			       FT->getParamType(0) == info->localeIdType &&
 			       FT->getParamType(1)->isPointerTy() &&
-			       FT->getParamType(1)->getPointerAddressSpace() == 0 &&
-			       containsGlobalPointers(info, FT->getReturnType()) ) {
+			       FT->getParamType(1)->getPointerAddressSpace() == 
+0 &&
+			       containsGlobalPointers(info, 
+FT->getReturnType()) ) {
 			Type* gType = FT->getReturnType();
 			GlobalPointerInfo & r = info->gTypes[gType];
 			r.makeFn = F;
 			info->specialFunctions.insert(F);
-		    } else if( F->getName().startswith(GLOBAL_FN_GLOBAL_TO_WIDE) &&
+		    } else if( 
+F->getName().startswith(GLOBAL_FN_GLOBAL_TO_WIDE) &&
 			       FT->getNumParams() == 1 &&
-			       containsGlobalPointers(info, FT->getParamType(0)) ) {
+			       containsGlobalPointers(info, 
+FT->getParamType(0)) ) {
 			Type* gType = FT->getParamType(0);
 			GlobalPointerInfo & r = info->gTypes[gType];
 			r.globalToWideFn = F;
 			info->specialFunctions.insert(F);
-		    } else if( F->getName().startswith(GLOBAL_FN_WIDE_TO_GLOBAL) &&
-			       FT->getNumParams() == 1 &&
-			       containsGlobalPointers(info, FT->getReturnType()) ) {
+		    } else if( 
+			F->getName().startswith(GLOBAL_FN_WIDE_TO_GLOBAL) &&
+			FT->getNumParams() == 1 &&
+			containsGlobalPointers(info, 
+					       FT->getReturnType()) ) {
 			Type* gType = FT->getReturnType();
 			GlobalPointerInfo & r = info->gTypes[gType];
 			r.wideToGlobalFn = F;
@@ -986,11 +1168,11 @@ namespace {
 		    }
 		}
 	    }
-
+	    
 	    assert(info->globalSpace > 0);
 	    assert(info->localeIdType);
 	    assert(info->nodeIdType);
-
+	    
 	    // Wide pointer address space must differ from the local one...
 	    assert(info->globalSpace != 0);
 	    assert(info->wideSpace != 0);
@@ -1005,21 +1187,25 @@ namespace {
 		}
 		localityOptimization(M, F);
 	    }
-
+	    
 	    // After it all, put the target info back.
 	    if( !madeInfo ) M.setDataLayout(layoutAfterwards);
 	    if( madeInfo ) delete info;
 	    
 	    return true;
 	}
-  
 	
-	void salvageChapelArrayAccess(Function *F, ValueTable *VN, LocalArrayInfo *LocalArraysGVN, LocalArrayInfo *LocalArraysDecl) {
+	
+	void salvageChapelArrayAccess(Function *F, ValueTable *VN, 
+				      LocalArrayInfo *LocalArraysGVN,
+				      LocalArrayInfo *LocalArraysDecl) {
 	    /* Skip this if there is a branch instruction. */
 	    /* (TODO) Integrate salvageChapelArrayAccess into IGraph later*/
-	    for (inst_iterator IS = inst_begin(F), IE = inst_end(F); IS != IE; IS++) {
+	    for (inst_iterator IS = inst_begin(F),
+		     IE = inst_end(F); IS != IE; IS++) {
 		Instruction *targetInsn = &*IS;
-		TerminatorInst *branch = dyn_cast<TerminatorInst>(targetInsn);
+		TerminatorInst *branch =
+		    dyn_cast<TerminatorInst>(targetInsn);
 		if (branch) {
 		    ReturnInst *RI = dyn_cast<ReturnInst>(targetInsn);
 		    if (!RI) {
@@ -1029,7 +1215,8 @@ namespace {
 		}		
 	    }
 
-	    for (inst_iterator IS = inst_begin(F), IE = inst_end(F); IS != IE; IS++) {
+	    for (inst_iterator IS = inst_begin(F),
+		     IE = inst_end(F); IS != IE; IS++) {
 		Instruction *targetInsn = &*IS;
 		switch (targetInsn->getOpcode()) {
 		case Instruction::Load:
@@ -1056,7 +1243,8 @@ namespace {
 	    if (getOffsetGEP) {
 		errs () << "Offset : \n";
 		errs () << *getOffsetGEP << "\n";
-		Instruction *offsetInsn = dyn_cast<Instruction>(getOffsetGEP->getOperand(1));
+		Instruction *offsetInsn = 
+		    dyn_cast<Instruction>(getOffsetGEP->getOperand(1));
 		if (offsetInsn) {
 		    switch(offsetInsn->getOpcode()) {
 		    case Instruction::Load: {			
@@ -1064,18 +1252,22 @@ namespace {
 			break;
 		    }
 		    case Instruction::Shl: {
-			Constant *op1 = dyn_cast<Constant>(offsetInsn->getOperand(1));
+			Constant *op1 = 
+			    dyn_cast<Constant>(offsetInsn->getOperand(1));
 			if (op1) {
-			    ret = 1 << (int)(op1->getUniqueInteger().roundToDouble());
+			    ret = 1 << 
+				(int)(op1->getUniqueInteger().roundToDouble());
 			} else {
 			    ret = -1; 
 			}
 			break;
 		    }
 		    case Instruction::Mul: {
-			Constant *op1 = dyn_cast<Constant>(offsetInsn->getOperand(1));
+			Constant *op1 = 
+			    dyn_cast<Constant>(offsetInsn->getOperand(1));
 			if (op1) {
-			    ret = (int)(op1->getUniqueInteger().roundToDouble());
+			    ret = 
+				(int)(op1->getUniqueInteger().roundToDouble());
 			} else {
 			    ret = -1;
 			}						
@@ -1087,40 +1279,56 @@ namespace {
 	    return ret;
 	}	    
 	
-	void analyzeLoadStoreInsn(Instruction *I, Function *F, ValueTable *VN, LocalArrayInfo *LocalArrays) {
+	void analyzeLoadStoreInsn(Instruction *I, Function *F, ValueTable *VN, 
+				  LocalArrayInfo *LocalArrays) {
 	    if (isArrayAccessLoadOrStore(I, info->globalSpace)) {
-                // for each store/load instruction that involves addrspace 100 and is supposed to be array access.
+                // for each store/load instruction that involves addrspace 100 
+                // and is supposed to be array access.
 		if (debugPassInsn) {
 		    errs () << *I << " is supposed to be array access\n";
 		}
 		GetElementPtrInst *gep1 = findGEP08FromMemOp(I);
 		if (gep1 == NULL) return;
-		for (inst_iterator IS2 = inst_begin(F), IE2 = inst_end(F); IS2 != IE2; IS2++) {
+		for (inst_iterator IS2 = inst_begin(F),
+			 IE2 = inst_end(F); IS2 != IE2; IS2++) {
 		    Instruction *I2 = &*IS2;
-		    // search load/store instruction that is supposed to be local array access.
+		    // search load/store instruction that is supposed
+		    // to be local array access.
 		    if (I != I2 && isArrayAccessLoadOrStore(I2, 0)) {
-			// I  is load/store addrspace(100) ptr and supposed to be array access at this point
-			// I2 is load/store addrspace(0)   ptr and supposed to be array access at this point
+			// I  is load/store addrspace(100) ptr
+			// and supposed to be array access at this point
+			// I2 is load/store addrspace(0) ptr
+			// and supposed to be array access at this point
 			GetElementPtrInst *gep2 = findGEP08FromMemOp(I2);
 			if (gep2 == NULL) continue;
 			if (VN->sameExpressions(gep1, gep2)) {
 			    errs () << "[GVN worked!]\n";
 			    errs () << "\t Local Access :\n";
-			    errs () << "\t\t Load/Store w/ addrspace(0)   : " << *I2 << "\n";			    
-			    errs () << "\t\t Array Ptr  w/ addrspace(0)   : " << *gep2 << "\n";
+			    errs () << "\t\t Load/Store w/ addrspace(0)   : " 
+				    << *I2 << "\n";			    
+			    errs () << "\t\t Array Ptr  w/ addrspace(0)   : " 
+				    << *gep2 << "\n";
 			    errs () << "\t Possibly Remote Access :\n";
-			    errs () << "\t\t Load/Store w/ addrspace(100) : " << *I << "\n";			    
-			    errs () << "\t\t Array Ptr  w/ addrspace(100) : " << *gep1 << "\n";			    
+			    errs () << "\t\t Load/Store w/ addrspace(100) : " 
+				    << *I << "\n";			    
+			    errs () << "\t\t Array Ptr  w/ addrspace(100) : " 
+				    << *gep1 << "\n";			    
 			    // mark  
 			    Value *localArray = gep1->getPointerOperand();
-			    LocalArrayEntry *li = LocalArrays->getEntryByValue(localArray);
+			    LocalArrayEntry *li = 
+				LocalArrays->getEntryByValue(localArray);
 			    // Analyze Offset
-			    // FIXME: this is only for store instruction! (I2->getOperand(0) if it's a load instruction)
-			    int offset = analyzeArrayAccessOffsets(dyn_cast<Instruction>(I2->getOperand(1)));
+			    // FIXME: this is only for store instruction! 
+                            // (I2->getOperand(0) if it's a load instruction)
+			    int offset = 
+				analyzeArrayAccessOffsets(
+				    dyn_cast<Instruction>(I2->getOperand(1))
+				    );
 			    if (offset != -1) {
 				//
 				if (!li) {
-				    li = new LocalArrayEntry(localArray, false);
+				    li = new LocalArrayEntry(localArray,
+							     false);
 				    li->addLocalOffset(offset);
 				    LocalArrays->add(li);
 				} else {
@@ -1134,7 +1342,10 @@ namespace {
 	}
 
 	// check if construct_DefaultRectangularArr is in this function
-	void analyzeCallInsn(Instruction *I, ValueTable *VN, LocalArrayInfo *LocalArrays) {
+	void analyzeCallInsn(Instruction *I,
+			     ValueTable *VN,
+			     LocalArrayInfo 
+			     *LocalArrays) {
 	    if (isa<CallInst>(I)) {
 		CallInst *callInsn1 = cast<CallInst>(I);
 		Function *calledFunc1 = callInsn1->getCalledFunction();
@@ -1148,29 +1359,40 @@ namespace {
 		    if (isa<CallInst>(v)) {
 			CallInst *callInsn2 = cast<CallInst>(v);
 			Function *calledFunc2 = callInsn2->getCalledFunction();
-			if (calledFunc2 && calledFunc2->getName().startswith("_construct_DefaultRectangularArr")) {
+			if (calledFunc2 && 
+			    calledFunc2->getName()
+			    .startswith("_construct_DefaultRectangularArr")) {
 			    LocalArrayEntry *li = new LocalArrayEntry(I, true);
 			    LocalArrays->add(li);
 			} 
 		    }
-		} else if (funcName.startswith("chpl__convertRuntimeTypeToValue")) { //
+		} else if (funcName
+			   .startswith("chpl__convertRuntimeTypeToValue")) { //
 		    Value* v = callInsn1->getArgOperand(1);
 		    for (User *U : v->users()) {
 			Value *UI = U;
 			if (isa<LoadInst>(*UI)) {
 			    LoadInst *l = cast<LoadInst>(UI);
 			    if (l->getPointerOperand() == v) {
-				LocalArrayEntry *li = new LocalArrayEntry(UI, true);
+				LocalArrayEntry *li =
+				    new LocalArrayEntry(UI, true);
 				LocalArrays->add(li);
 				// support chpl___ASSIGN
 				for (User *LU: l->users()) {
 				    Value *LUI = LU;
 				    if (isa<CallInst>(LUI)) {
-					CallInst *callInsn2 = cast<CallInst>(LUI);
-					Function *calledFunc2 = callInsn2->getCalledFunction();
-					if (calledFunc2 && calledFunc2->getName().startswith("chpl___ASSIGN_")
-					    && UI == callInsn2->getArgOperand(0)) {
-					    LocalArrayEntry *li2 = new LocalArrayEntry(LUI, true);
+					CallInst *callInsn2
+					    = cast<CallInst>(LUI);
+					Function *calledFunc2
+					    = callInsn2->getCalledFunction();
+					if (calledFunc2 && 
+					    calledFunc2
+					    ->getName()
+					    .startswith("chpl___ASSIGN_")
+					    && UI ==
+					    callInsn2->getArgOperand(0)) {
+					    LocalArrayEntry *li2 = new 
+						LocalArrayEntry(LUI, true);
 					    LocalArrays->add(li2);
 					}
 				    }
@@ -1185,7 +1407,9 @@ namespace {
 			if (isa<LoadInst>(UI)) {
 			    LoadInst *l = cast<LoadInst>(UI);
 			    if (l->getPointerOperand() == v) {
-				LocalArrayEntry *li = new LocalArrayEntry(UI, true);
+				LocalArrayEntry *li
+				    = new LocalArrayEntry(UI, 
+							  true);
 				LocalArrays->add(li);
 			    }
 			}
@@ -1194,7 +1418,8 @@ namespace {
 	    }    
 	}
 
-    	void searchGEP08Inst(vector<GetElementPtrInst*> &list, vector<Instruction*> &visited, Instruction* I) {
+    	void searchGEP08Inst(vector<GetElementPtrInst*> &list, 
+			     vector<Instruction*> &visited, Instruction* I) {
 	    // see if this Instruction is already visited
 	    if (find(visited.begin(), visited.end(), I)  != visited.end()) {
 		return;
@@ -1204,7 +1429,8 @@ namespace {
 		errs () << "Parent Insn : " << *I <<"\n";
 	    }
 	    // Check if this intruction is GEP
-	    GetElementPtrInst *gepInst = dyn_cast<GetElementPtrInst>(I);	    
+	    GetElementPtrInst *gepInst = dyn_cast<GetElementPtrInst>(I);	
+	    
 	    if (gepInst && gepInst->getNumIndices() == 2) {
 		if (debugPassInsn) {
 		    errs () << "Candidate GEP : " << *gepInst << "\n";
@@ -1212,7 +1438,8 @@ namespace {
 		Constant *op1 = dyn_cast<Constant>(gepInst->getOperand(1));
 		Constant *op2 = dyn_cast<Constant>(gepInst->getOperand(2));
 		if (op1 != NULL && op2 != NULL
-		    && op1->getUniqueInteger() == 0 && op2->getUniqueInteger() == 8) {
+		    && op1->getUniqueInteger() == 0
+		    && op2->getUniqueInteger() == 8) {
 		    // add a candidate GEP to list
 		    if (find(list.begin(),
 			     list.end(),
@@ -1310,7 +1537,8 @@ namespace {
 }
 
 char LocalityOpt::ID = 0;
-static RegisterPass<LocalityOpt> X("locality-opt", "Locality Optimization Pass");
+static RegisterPass<LocalityOpt> X("locality-opt",
+				   "Locality Optimization Pass");
 
 ModulePass *createLocalityOpt(GlobalToWideInfo* info, std::string setlayout) {
     return new LocalityOpt(info, setlayout);

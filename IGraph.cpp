@@ -85,7 +85,8 @@ void Node::printAsOperand(raw_ostream &o, bool PrettyPrint) const {
 	o << "\n" << this->getPostOrderNumber();
 #ifdef DEBUG
 	o << "\n" << "Parents (";
-	for (const_iterator I = parents_begin(), E = parents_end(); I != E; I++) {
+	for (const_iterator I = parents_begin(), E = parents_end(); I != E; 
+I++) {
 	    Node *n = *I;
 	    o << n->getPostOrderNumber();
 	    if (I+1 != E) {
@@ -94,7 +95,8 @@ void Node::printAsOperand(raw_ostream &o, bool PrettyPrint) const {
 	}
 	o << ")";
 	o << "\n" << "Children (";
-	for (const_iterator I = children_begin(), E = children_end(); I != E; I++) {
+	for (const_iterator I = children_begin(), E = children_end(); I != E; 
+I++) {
 	    Node *n = *I;	       
 	    o << n->getPostOrderNumber(); 
 	    if (I+1 != E) {
@@ -118,7 +120,8 @@ std::pair<bool, Value*> IGraph::isChapelLocalStmt(Instruction *insn) {
     if (call) {
 	Function* f = call->getCalledFunction();
 	if (f != NULL) {
-	    // calling @.gf.addr and then doing load and store => local statement
+	    // calling @.gf.addr and then doing load
+	    // and store => local statement
 	    if (f->getName().startswith(".gf.addr")) {
 		for (User *U : call->getArgOperand(0)->users()) {
 		    Value *UI = U;
@@ -132,7 +135,8 @@ std::pair<bool, Value*> IGraph::isChapelLocalStmt(Instruction *insn) {
     return std::make_pair(false, (Value*)NULL);
 }
 
-IGraph::InsnToNodeMapType IGraph::analyzeDefUseOfLocality(Function *F, GlobalToWideInfo *info) {
+IGraph::InsnToNodeMapType IGraph::analyzeDefUseOfLocality(Function *F, 
+GlobalToWideInfo *info) {
     /* 1. collect addrspace 100 pointers that is used in the next step. */
     /*    1. construct a set of addrspace 100 pointers. */
     /*    2. construct a list of blocks that def/use the pointer. */
@@ -142,7 +146,8 @@ IGraph::InsnToNodeMapType IGraph::analyzeDefUseOfLocality(Function *F, GlobalToW
     if (debug) {
 	errs () << "\t analyzing Def/Use of Locality\n";
     }
-    for (Function::arg_iterator I = F->arg_begin(), E = F->arg_end(); I!=E; ++I) {
+    for (Function::arg_iterator I = F->arg_begin(), E = F->arg_end(); I!=E; 
+++I) {
 	Value *arg = I;	
 	if (arg->getType()->isPointerTy()
 	    && arg->getType()->getPointerAddressSpace() == info->globalSpace) {
@@ -204,7 +209,8 @@ IGraph::InsnToNodeMapType IGraph::analyzeDefUseOfLocality(Function *F, GlobalToW
 		for (unsigned int i = 0; i < call->getNumArgOperands(); i++) {
 		    Value *op = call->getArgOperand(i);
 		    if (op->getType()->isPointerTy()
-			&& op->getType()->getPointerAddressSpace() == info->globalSpace) {
+			&& op->getType()->getPointerAddressSpace() == 
+info->globalSpace) {
 			needToWork = true;
 			kind = Node::NODE_DEF;
 			ptrOp = op;
@@ -233,7 +239,8 @@ IGraph::InsnToNodeMapType IGraph::analyzeDefUseOfLocality(Function *F, GlobalToW
 		possiblyRemotePtrs.push_back(ptrOp);
 	    }
 	    // store detailed information used in node construction.	    
-	    NodeCandidates[insn] = std::make_tuple(kind, ptrOp, insn, addrspace);
+	    NodeCandidates[insn] = std::make_tuple(kind, ptrOp, insn, 
+addrspace);
 	}
     }
     return NodeCandidates;
@@ -243,7 +250,8 @@ void IGraph::buildGraph(Function *F, InsnToNodeMapType &NodeCandidates) {
     if (debug) {
 	errs () << "\t buidling an initial graph\n";
     }
-    // Build a graph based on NodeCandidates construted in the previous phase (namely analyzeDefUseOfLocality)
+    // Build a graph based on NodeCandidates construted in the previous phase 
+    // (namely analyzeDefUseOfLocality)
     for (PossiblyRemoteArrayType::iterator I = possiblyRemotePtrs.begin(),
 	     E = possiblyRemotePtrs.end(); I != E; I++) {
 	Value* val = *I;
@@ -255,9 +263,11 @@ void IGraph::buildGraph(Function *F, InsnToNodeMapType &NodeCandidates) {
 	// 
 	bool firstOccurrence = true;
 	// Create Intra-block edge
-	for (Function::iterator BI = F->begin(), BE = F->end(); BI != BE; BI++) {
+	for (Function::iterator BI = F->begin(),
+		 BE = F->end(); BI != BE; BI++) {
 	    BasicBlock* BB = BI;
-	    // remember first and last node in BB so we can create edges between blocks.
+	    // remember first and last node in BB so we can create edges 
+            // between blocks.
 	    Node *firstNodeInBB = NULL;
 	    Node *lastNodeInBB = NULL;
 	    bool nodeAdded = false;
@@ -284,18 +294,24 @@ void IGraph::buildGraph(Function *F, InsnToNodeMapType &NodeCandidates) {
 	    // For each instruction
 	    // Create a node if an instruction contains possibly-remote access
 
-	    for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; I++) {
+	    for (BasicBlock::iterator I = BB->begin(),
+		     E = BB->end(); I != E; I++) {
 		// add edge if needed
 		Instruction *insn = &*I;
 		if ((NodeCandidates.find(insn) != NodeCandidates.end())
 		    && std::get<1>(NodeCandidates[insn]) == val) {
-		    std::tuple<Node::NodeKind, Value*, Instruction*, int> &info = NodeCandidates[insn];
+		    std::tuple<Node::NodeKind,
+			       Value*,
+			       Instruction*,
+			       int> &info = NodeCandidates[insn];
 		    // create a new node.
 		    Node *n = new Node(std::get<0>(info),  // Kind
 				       std::get<1>(info),  // Value
 				       std::get<2>(info),  // Insn
-				       0,                  // Version (0 for now)
-				       std::get<3>(info)); // Locality (either 0 or 100)
+				       0,
+                                       // Version (0 for now, set later)
+				       std::get<3>(info));
+                                       // Locality (either 0 or 100)
 		    // register the created node to the Graph.
 		    this->addNode(n);
 		    nodeAdded = true;
@@ -320,7 +336,8 @@ void IGraph::buildGraph(Function *F, InsnToNodeMapType &NodeCandidates) {
 	    if (nodeAdded) {
 		BBInfo[BB] = std::make_pair(firstNodeInBB, lastNodeInBB);
 	    } else {
-		Node *dummyUSENode = new Node(Node::NODE_USE, val, NULL, 0, 100);
+		Node *dummyUSENode = new Node(Node::NODE_USE, val, NULL, 0, 
+100);
 		this->addNode(dummyUSENode);
 		BBInfo[BB] = std::make_pair(dummyUSENode, dummyUSENode);
 	    }
@@ -339,7 +356,8 @@ void IGraph::buildGraph(Function *F, InsnToNodeMapType &NodeCandidates) {
 	    const TerminatorInst *TInst = BB->getTerminator();
 	    // add edges :
 	    // the last node in the current BB -> the first node in succesor BBs
-	    for (unsigned I = 0, NSucc = TInst->getNumSuccessors(); I < NSucc; I++) {
+	    for (unsigned I = 0, NSucc = TInst->getNumSuccessors(); I < NSucc; 
+I++) {
 		BasicBlock *Succ = TInst->getSuccessor(I);
 		std::pair<Node*, Node*> &DstBBinfo = BBInfo[Succ];
 		Node* dstNode = std::get<0>(DstBBinfo);
@@ -360,7 +378,8 @@ void IGraph::calculateDTandDF() {
     computeDominanceFrontier();
 }
 
-void IGraph::setPostOrderNumberWithDFSInternal(Node *node, int &number, Node::NodeElementType &visited) {
+void IGraph::setPostOrderNumberWithDFSInternal(Node *node, int &number, 
+Node::NodeElementType &visited) {
     visited.push_back(node);
     
     for (Node::iterator I = node->children_begin(),
@@ -441,7 +460,8 @@ void IGraph::computeDominatorTree() {
 		if (p == first_pred) continue;
 		if (!p->getUndefined()) {
 		    new_idom.reset();
-		    int idx = computeIntersect(p, first_pred)->getPostOrderNumber();
+		    int idx = computeIntersect(p, 
+first_pred)->getPostOrderNumber();
 		    new_idom[idx] = true;
 		}
 	    }
@@ -473,11 +493,13 @@ Node* IGraph::computeIntersect(Node* b1, Node* b2) {
     while (finger1->getPostOrderNumber() != finger2->getPostOrderNumber()) {
 	while (finger1->getPostOrderNumber() < finger2->getPostOrderNumber()) {
 	    assert(finger1->getIDom().count() == 1);
-	    finger1 = this->getNodeByPostOrderNumber(finger1->getIDom().find_first());
+	    finger1 = 
+this->getNodeByPostOrderNumber(finger1->getIDom().find_first());
 	}
 	while (finger2->getPostOrderNumber() < finger1->getPostOrderNumber()) {
 	    assert(finger2->getIDom().count() == 1);
-	    finger2 = this->getNodeByPostOrderNumber(finger2->getIDom().find_first());
+	    finger2 = 
+this->getNodeByPostOrderNumber(finger2->getIDom().find_first());
 	}
     }
     return finger1;
@@ -501,9 +523,11 @@ void IGraph::computeDominanceFrontier() {
 	    for (Node::iterator BI = b->parents_begin(),
 		     BE = b->parents_end(); BI != BE; BI++) {
 		Node *runner = *BI;
-		while (runner->getPostOrderNumber() != b->getIDom().find_first()) {
+		while (runner->getPostOrderNumber() != 
+b->getIDom().find_first()) {
 		    runner->addToDominanceFrontier(b);
-		    runner = this->getNodeByPostOrderNumber(runner->getIDom().find_first());
+		    runner = 
+this->getNodeByPostOrderNumber(runner->getIDom().find_first());
 		} 
 	    }		 
 	}
@@ -559,7 +583,7 @@ void IGraph::performPhiNodeInsertion(bool &Changed) {
 		    Node *phiNode = new Node(Node::NODE_PHI, val, NULL, 0, 0);
 		    this->addNode(phiNode);
 		    // inserting a new phi-node
-		    // preserve parents and children of DFofDEF first (TODO functionalize)
+		    // preserve parents and children of DFofDEF first
 		    Node::NodeElementType DFofDEFParents;
 		    for (Node::iterator NI = DFofDEF->parents_begin(),
 			     NE = DFofDEF->parents_end();
@@ -629,7 +653,9 @@ void IGraph::performRenamingInternal(Node *n, Node::NodeElementType &visited) {
 	// see if the node is a children of n in DT
 	if (n != node
 	    && n->getPostOrderNumber() == node->getIDom().find_first()) {
-	    errs () << node->getPostOrderNumber() << " is dominated by " << n->getPostOrderNumber() << "\n";
+	    errs () << node->getPostOrderNumber()
+		    << " is dominated by "
+		    << n->getPostOrderNumber() << "\n";
 	    performRenamingInternal(node, visited);
 	}
     }
@@ -660,7 +686,8 @@ void IGraph::performRenaming() {
 void IGraph::construct(Function *F, GlobalToWideInfo *info) {
 
     if (debug) {
-	errs () << "[Inequality Graph Construction for " << F->getName() << "]\n";
+	errs () << "[Inequality Graph Construction for "
+		<< F->getName() << "]\n";
     }
 
     /* First create an entry node */
@@ -743,7 +770,8 @@ IGraph::Answer IGraph::prove(const Value* value,
 			     const Instruction *insn,
                              const int qLocality) const {
     if (debug) {
-	errs () << "Proving (" << *value << " == " << qLocality << ")? @" << *insn << "\n";
+	errs () << "Proving (" << *value << " == " << qLocality << ")? @"
+		<< *insn << "\n";
     }
     // locate corresponding node
     const Node* target = NULL;

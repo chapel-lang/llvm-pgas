@@ -172,7 +172,8 @@ public:
 
     // Used for visiting nodes in post order
     void resetPostOrderNumber() { postOrderNumber = -1; };
-    void setPostOrderNumber(int _postOrderNumber) { postOrderNumber = _postOrderNumber; }
+    void setPostOrderNumber(int _postOrderNumber) {
+	postOrderNumber = _postOrderNumber; }
     int getPostOrderNumber() const { return postOrderNumber; }
     // Used for calculating dominator tree
     bool getUndefined() { return domIsUndefined; }
@@ -186,7 +187,8 @@ public:
 	
     /* === Utility functions for Inequality Graph Construction Ends === */
 
-    // Used for showing information on this node (e.g. when dumping in DOT format) 
+    // Used for showing information on this node
+    // (e.g. when dumping in DOT format) 
     void printAsOperand(raw_ostream&, bool) const;
     
     // Used for debug
@@ -216,7 +218,8 @@ private:
     PossiblyRemoteArrayType possiblyRemoteArgs;
 
     // Used for analyzing def/use of locality
-    typedef DenseMap<Instruction*, std::tuple<Node::NodeKind, Value*, Instruction*, int>> InsnToNodeMapType;
+    typedef DenseMap<Instruction*, std::tuple<Node::NodeKind, Value*, 
+Instruction*, int>> InsnToNodeMapType;
 
     // For Renaming
     typedef std::stack<int> StackType;
@@ -319,23 +322,36 @@ namespace llvm {
 	typedef NodeType::const_iterator ChildIteratorType;
 	
 	static NodeType *getEntryNode(const Node *node) { return node; }
-	static inline ChildIteratorType child_begin(const NodeType *N) { return N->children_begin(); }
-	static inline ChildIteratorType child_end(const NodeType *N) { return N->children_end(); }
+	static inline ChildIteratorType child_begin(const NodeType *N) {
+	    return N->children_begin();
+	}
+	static inline ChildIteratorType child_end(const NodeType *N) {
+	    return N->children_end();
+	}
     };
     
     // template specialization for <const IGraph*>
-    template<> struct GraphTraits<const IGraph*> : public GraphTraits<const Node*> {
-	static NodeType *getEntryNode(const IGraph *G) { return G->getEntry(); }
+    template<> struct GraphTraits<const IGraph*> :
+	public GraphTraits<const Node*> {
+	static NodeType *getEntryNode(const IGraph *G) {
+	    return G->getEntry();
+	}
 	typedef IGraph::const_iterator nodes_iterator;
 
-	static nodes_iterator nodes_begin(const IGraph *G) { return G->begin(); }
-	static nodes_iterator nodes_end(const IGraph *G) { return G->end(); }
+	static nodes_iterator nodes_begin(const IGraph *G) {
+	    return G->begin();
+	}
+	static nodes_iterator nodes_end(const IGraph *G) {
+	    return G->end();
+	}
 	static unsigned size(const IGraph *G) { return G->size(); }
     };
     
     // template specialization for <const IGraph*> for Writing DOTGraph
-    template<> struct DOTGraphTraits<const IGraph*> : public DefaultDOTGraphTraits {
-	DOTGraphTraits (bool isSimple=false) : DefaultDOTGraphTraits(isSimple) {}
+    template<> struct DOTGraphTraits<const IGraph*> : public 
+	DefaultDOTGraphTraits {
+	DOTGraphTraits (bool isSimple=false) : DefaultDOTGraphTraits(isSimple) 
+	{}
 
 	static std::string getGraphName(const IGraph* G) {
 	    return "Inequality Graph for '" + G->getName().str();
