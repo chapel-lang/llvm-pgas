@@ -42,7 +42,7 @@ entry:
   %0 = call i64* @.gf.addr.1(i64 addrspace(100)* %x)
   %1 = load i64, i64* %0
 ; CHECK: call i64* @.gf.addr.
-; CHECK; load i64, i64*
+; CHECK: load i64, i64*
 ; CHECK: add i64
 ; CHECK: ret i64
   %2 = load i64, i64 addrspace(100)* %x
@@ -105,15 +105,12 @@ define internal fastcc void @localizeByGVN(%chpl_DefaultRectangularArr_int64_t_1
 ; CHECK: @localizeByGVN(
 ; )
 entry:
-; CHECK: call %chpl_DefaultRectangularArr_int64_t_1_int64_t_F_object* @.gf.addr.
-; CHECK: getelementptr inbounds %chpl_DefaultRectangularArr_int64_t_1_int64_t_F_object, %chpl_DefaultRectangularArr_int64_t_1_int64_t_F_object*
   %0 = getelementptr inbounds %chpl_DefaultRectangularArr_int64_t_1_int64_t_F_object, %chpl_DefaultRectangularArr_int64_t_1_int64_t_F_object addrspace(100)* %A.val, i64 0, i32 3, i64 0
-; CHECK: load i64, i64*  
   %1 = load i64, i64 addrspace(100)* %0
-; CHECK: call %chpl_DefaultRectangularArr_int64_t_1_int64_t_F_object* @.gf.addr.  
   %2 = getelementptr inbounds %chpl_DefaultRectangularArr_int64_t_1_int64_t_F_object, %chpl_DefaultRectangularArr_int64_t_1_int64_t_F_object addrspace(100)* %A.val, i64 0, i32 8
-; CHECK: load i64 addrspace(100)*, i64 addrspace(100)**
-  %3 = load i64 addrspace(100)*, i64 addrspace(100)* addrspace(100)* %2  
+  %3 = load i64 addrspace(100)*, i64 addrspace(100)* addrspace(100)* %2
+; CHECK: call i64* @.gf.addr.
+; CHECK: getelementptr inbounds i64, i64*
   %4 = getelementptr inbounds i64, i64 addrspace(100)* %3, i64 %1
 ; CHECK: store i64 1, i64*
   store i64 1, i64 addrspace(100)* %4
@@ -130,4 +127,119 @@ entry:
   %14 = getelementptr inbounds i64, i64 addrspace(100)* %3, i64 %13
   store i64 3, i64 addrspace(100)* %14
   ret void
+}
+
+
+@Q = internal global i64 0
+; proc habanero(ref x) : int {
+;   var p: int = 1;
+;   if (Q == 1) {
+;     local { p = x; }
+;   }
+;   return p + x; // might be non-local
+; }
+
+define internal fastcc i64 @localizeUnderCondition1(i64 addrspace(100)* %x.val) {
+; CHECK: @localizeUnderCondition1(
+; )
+entry:
+  %0 = load i64, i64* @Q
+  %1 = icmp eq i64 %0, 1
+  br i1 %1, label %habanero_5blk_body_, label %habanero_3cond_end_
+
+habanero_5blk_body_:                              ; preds = %entry
+  %2 = tail call i64* @.gf.addr.1(i64 addrspace(100)* %x.val)
+  %3 = load i64, i64* %2
+  br label %habanero_3cond_end_
+
+habanero_3cond_end_:                              ; preds = %habanero_5blk_body_, %entry
+  %p.0 = phi i64 [ %3, %habanero_5blk_body_ ], [ 1, %entry ]
+; CHECK: load i64, i64 addrspace(100)* %x.val  
+  %4 = load i64, i64 addrspace(100)* %x.val
+  %5 = add i64 %4, %p.0
+  ret i64 %5
+}
+
+;   var p: int = 1;
+;   if (Q == 1) {
+;     local { p = x; }
+;     p = x; // definitely-local
+;   } else {
+;     p = x; // possibly-remote
+;   }
+;   return p + x; // possibly remote
+; }
+
+define internal fastcc i64 @localizeUnderCondition2(i64 addrspace(100)* %x.val) {
+; CHECK: @localizeUnderCondition2(
+; )
+entry:
+  %0 = load i64, i64* @Q
+  %1 = icmp eq i64 %0, 1
+  br i1 %1, label %habanero_5blk_body_, label %habanero_6blk_body_
+
+habanero_5blk_body_:                              ; preds = %entry
+  %2 = tail call i64* @.gf.addr.1(i64 addrspace(100)* %x.val)
+  %3 = load i64, i64* %2
+; CHECK: call i64* @.gf.addr.
+; CHECK: load i64, i64*  
+  %.pre = load i64, i64 addrspace(100)* %x.val
+  br label %habanero_3cond_end_
+
+habanero_6blk_body_:                              ; preds = %entry
+; CHECK: load i64, i64 addrspace(100)* %x.val  
+  %4 = load i64, i64 addrspace(100)* %x.val
+  br label %habanero_3cond_end_
+
+habanero_3cond_end_:                              ; preds = %habanero_6blk_body_, %habanero_5blk_body_
+  %5 = phi i64 [ %.pre, %habanero_5blk_body_ ], [ %4, %habanero_6blk_body_ ]
+  %p.0 = phi i64 [ %3, %habanero_5blk_body_ ], [ %4, %habanero_6blk_body_ ]
+  %6 = add i64 %5, %p.0
+  ret i64 %6
+}
+
+; proc habanero(ref x) : int {
+;   var p: int = 1;
+;   if (Q == 1) {
+;     local { p = x; }
+;   } else if (Q == 2) {
+;     local { p = x; }
+;   } else {
+;     local { p = x; }
+;   }
+;   return p + x; // definitely-local
+; }
+
+define internal fastcc i64 @localizeUnderCondition3(i64 addrspace(100)* %x.val) {
+; CHECK: @localizeUnderCondition3(
+; )
+entry:
+  %0 = load i64, i64* @Q
+  switch i64 %0, label %habanero_10blk_body_ [
+  i64 1, label %habanero_5blk_body_
+  i64 2, label %habanero_8blk_body_
+  ]
+
+habanero_5blk_body_:                              ; preds = %entry
+  %1 = tail call i64* @.gf.addr.1(i64 addrspace(100)* %x.val)
+  %2 = load i64, i64* %1
+  br label %habanero_3cond_end_
+
+habanero_8blk_body_:                              ; preds = %entry
+  %q = tail call i64* @.gf.addr.1(i64 addrspace(100)* %x.val)
+  %3 = load i64, i64* %q
+  br label %habanero_3cond_end_
+
+habanero_10blk_body_:                             ; preds = %entry
+  %4 = tail call i64* @.gf.addr.1(i64 addrspace(100)* %x.val)
+  %5 = load i64, i64* %4
+  br label %habanero_3cond_end_
+
+habanero_3cond_end_:                              ; preds = %habanero_8blk_body_, %habanero_10blk_body_, %habanero_5blk_body_
+  %p.0 = phi i64 [ %2, %habanero_5blk_body_ ], [ %3, %habanero_8blk_body_ ], [ %5, %habanero_10blk_body_ ]
+; CHECK: call i64* @.gf.addr.
+; CHECK: load i64, i64*  
+  %6 = load i64, i64 addrspace(100)* %x.val
+  %7 = add i64 %6, %p.0
+  ret i64 %7
 }
