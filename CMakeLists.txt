@@ -55,7 +55,10 @@ set(LLVM_LIBRARY_OUTPUT_INTDIR "${CMAKE_BINARY_DIR}/lib/${CMAKE_CFG_INT_DIR}")
 set(SOURCES
       llvmAggregateGlobalOps.cpp
       llvmGlobalToWide.cpp
+      llvmLocalityOptimization.cpp
       llvmUtil.cpp
+      ValueTable.cpp
+      IGraph.cpp
    )
 
 add_llvm_loadable_module( llvm-pgas ${SOURCES} )
